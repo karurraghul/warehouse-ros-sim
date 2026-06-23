@@ -1,0 +1,93 @@
+<?xml version="1.0" ?>
+
+    <robot name="rob_description" xmlns:xacro="http://www.ros.org/wiki/xacro" >
+
+<xacro:include filename="$(find robo_ai)/gazebo/plugins.gazebo" />
+
+<!-- Drive wheels: high friction for traction -->
+<xacro:property name="drive_wheel_mu" value="1.0" />
+<xacro:property name="drive_wheel_kp" value="1000000.0" />
+<xacro:property name="drive_wheel_kd" value="100.0" />
+<xacro:property name="drive_wheel_minDepth" value="0.001" />
+<xacro:property name="drive_wheel_fdir1" value="1 0 0" />
+<xacro:property name="drive_wheel_gravity" value="true" />
+
+<!-- Caster: near-zero friction so it doesn't fight turning -->
+<xacro:property name="caster_wheel_mu" value="0.0" />
+<xacro:property name="caster_wheel_gravity" value="true" />
+
+<!-- Base link: zero friction (should not touch ground) -->
+<xacro:property name="base_link_mu" value="0.0" />
+<xacro:property name="base_link_gravity" value="true" />
+
+<!-- Lidar: low friction -->
+<xacro:property name="lidar_mu" value="0.1" />
+<xacro:property name="lidar_gravity" value="true" />
+
+<!-- Camera link: low friction -->
+<xacro:property name="camera_link_mu" value="0.1" />
+<xacro:property name="camera_link_gravity" value="true" />
+
+<!-- Camera back view: low friction -->
+<xacro:property name="camera_back_view_mu" value="0.1" />
+<xacro:property name="camera_back_view_gravity" value="true" />
+
+<gazebo reference="wheel_left">
+    <mu1>${drive_wheel_mu}</mu1>
+    <mu2>${drive_wheel_mu}</mu2>
+    <kp>${drive_wheel_kp}</kp>
+    <kd>${drive_wheel_kd}</kd>
+    <minDepth>${drive_wheel_minDepth}</minDepth>
+    <fdir1>${drive_wheel_fdir1}</fdir1>
+    <gravity>${drive_wheel_gravity}</gravity>
+</gazebo>
+
+<gazebo reference="wheel_right">
+    <mu1>${drive_wheel_mu}</mu1>
+    <mu2>${drive_wheel_mu}</mu2>
+    <kp>${drive_wheel_kp}</kp>
+    <kd>${drive_wheel_kd}</kd>
+    <minDepth>${drive_wheel_minDepth}</minDepth>
+    <fdir1>${drive_wheel_fdir1}</fdir1>
+    <gravity>${drive_wheel_gravity}</gravity>
+</gazebo>
+
+
+
+
+<!-- Caster: near-zero friction so it doesn't fight turning -->
+<gazebo reference="castor_wheel">
+    <mu1>${caster_wheel_mu}</mu1>
+    <mu2>${caster_wheel_mu}</mu2>
+    <gravity>${caster_wheel_gravity}</gravity>
+</gazebo>
+
+<!-- Chassis: zero friction (should not touch ground) -->
+<gazebo reference="base_link">
+    <mu1>${base_link_mu}</mu1>
+    <mu2>${base_link_mu}</mu2>
+    <gravity>${base_link_gravity}</gravity>
+</gazebo>
+
+<!-- Sensors: low friction -->
+<gazebo reference="lidar">
+    <visualize>true</visualize>
+    <mu1>${lidar_mu}</mu1>
+    <mu2>${lidar_mu}</mu2>
+    <gravity>${lidar_gravity}</gravity>
+</gazebo>
+
+<gazebo reference="camera_link">
+    <visualize>true</visualize>
+    <mu1>${camera_link_mu}</mu1>
+    <mu2>${camera_link_mu}</mu2>
+    <gravity>${camera_link_gravity}</gravity>
+</gazebo>
+
+<gazebo reference="camera_back_view_link">
+    <visualize>true</visualize>
+    <mu1>${camera_back_view_mu}</mu1>
+    <mu2>${camera_back_view_mu}</mu2>
+    <gravity>${camera_back_view_gravity}</gravity>
+</gazebo>
+</robot>

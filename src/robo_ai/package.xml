@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>robo_ai</name>
+  <version>0.0.0</version>
+  <description>TODO: Package description</description>
+  <maintainer email="raghul@todo.todo">raghul</maintainer>
+  <license>TODO: License declaration</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+     <gazebo_ros gazebo_model_path="${prefix}/.."/>
+     <gazebo_ros gazebo_ros_package="gazebo_ros"/>
+  </export>
+
+  <exec_depend>gazebo_ros</exec_depend>
+  <exec_depend>gazebo_ros_factory</exec_depend>
+  <exec_depend>gazebo_ros_diff_drive</exec_depend>
+  <exec_depend>gazebo_ros_ray_sensor</exec_depend>
+  <exec_depend>gazebo_ros_imu</exec_depend>
+  <exec_depend>gazebo_ros_camera</exec_depend>
+  <exec_depend>gazebo_ros_lidar</exec_depend>
+</package>
