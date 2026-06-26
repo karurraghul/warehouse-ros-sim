@@ -1,0 +1,5 @@
+prepend-non-duplicate;GAZEBO_MODEL_PATH;share
+prepend-non-duplicate;GAZEBO_MODEL_PATH;share/robo_ai/gazebo_models/models
+prepend-non-duplicate;GAZEBO_RESOURCE_PATH;share/robo_ai/gazebo_models
+prepend-non-duplicate;GAZEBO_RESOURCE_PATH;/usr/share/gazebo-11
+

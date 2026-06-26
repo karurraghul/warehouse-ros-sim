@@ -1,260 +1,195 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="delivery_robot">
 
-  <xacro:include filename="$(find robo_ai)/gazebo/delivery_robot.gazebo" />
+  <xacro:include filename="$(find robo_ai)/gazebo/delivery_robot.gazebo"/>
 
-  <link name="body">
-    <inertial>
-      <origin xyz="0 0 0.201" rpy="0 0 0"/>
-      <mass value="70"/>
-      <inertia ixx="5.1526" iyy="2.4944" izz="6.2829" ixy="0" iyz="0" ixz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 -1.5708"/>
-      <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/body.obj" scale="1 1 1"/>
-      </geometry>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 -1.5708"/>
-      <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/body.obj" scale="1 1 1"/>
-      </geometry>
-    </collision>
-  </link>
+  <xacro:property name="wheel_radius" value="0.033"/>
+  <xacro:property name="wheel_width" value="0.026"/>
+  <xacro:property name="wheel_separation" value="0.287"/>
+  <xacro:property name="base_mass" value="2.0"/>
+  <xacro:property name="wheel_mass" value="0.05"/>
 
-  <link name="tire_left">
+  <!-- Nav2 root frame at ground level. Gazebo drives odom against this frame. -->
+  <link name="base_footprint"/>
+
+  <joint name="base_joint" type="fixed">
+    <origin xyz="0 0 0.08" rpy="0 0 0"/>
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+  </joint>
+
+  <link name="base_link">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="5.0"/>
-      <inertia ixx="0.757897446874" iyy="1.302975553365" izz="0.757897446874" ixy="0" iyz="0" ixz="0"/>
+      <mass value="${base_mass}"/>
+      <inertia ixx="0.018" iyy="0.018" izz="0.028" ixy="0" iyz="0" ixz="0"/>
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 -1.5708"/>
+      <origin xyz="-0.064 0 -0.07" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/WheelSide.obj" scale="1 1 1"/>
+        <mesh filename="package://robo_ai/models/delivery_robot/meshes/waffle_pi_base.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="0.06137"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <link name="tire_right">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="5.0"/>
-      <inertia ixx="0.757897446874" iyy="1.302975553365" izz="0.757897446874" ixy="0" iyz="0" ixz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 -1.5708"/>
-      <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/WheelSide.obj" scale="1 1 1"/>
-      </geometry>
+      <material name="light_black">
+        <color rgba="0.2 0.2 0.2 1.0"/>
+      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <sphere radius="0.06137"/>
+        <box size="0.28 0.22 0.14"/>
       </geometry>
     </collision>
   </link>
 
-  <link name="caster_fl">
+  <link name="left_wheel_link">
     <inertial>
-      <mass value="0.1"/>
-      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" iyz="0" ixz="0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="${wheel_mass}"/>
+      <inertia ixx="0.00003" iyy="0.00003" izz="0.00006" ixy="0" iyz="0" ixz="0"/>
     </inertial>
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/WheelMain.obj" scale="1 1 1"/>
+        <mesh filename="package://robo_ai/models/delivery_robot/meshes/left_tire.stl" scale="0.001 0.001 0.001"/>
       </geometry>
+      <material name="wheel_black">
+        <color rgba="0.05 0.05 0.05 1.0"/>
+      </material>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
       <geometry>
-        <sphere radius="0.05"/>
+        <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
       </geometry>
     </collision>
   </link>
 
-  <link name="caster_bl">
-    <inertial>
-      <mass value="0.1"/>
-      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" iyz="0" ixz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/WheelMain.obj" scale="1 1 1"/>
-      </geometry>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="0.05"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <link name="caster_fr">
-    <inertial>
-      <mass value="0.1"/>
-      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" iyz="0" ixz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/WheelMain.obj" scale="1 1 1"/>
-      </geometry>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="0.05"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <link name="caster_br">
-    <inertial>
-      <mass value="0.1"/>
-      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" iyz="0" ixz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/WheelMain.obj" scale="1 1 1"/>
-      </geometry>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <sphere radius="0.05"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <joint name="joint_tire_left" type="continuous">
-    <origin xyz="0 0.26 0.10" rpy="0 0 0"/>
-    <parent link="body"/>
-    <child link="tire_left"/>
+  <joint name="left_wheel_joint" type="continuous">
+    <origin xyz="0 ${wheel_separation / 2.0} ${wheel_radius - 0.08}" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="left_wheel_link"/>
     <axis xyz="0 1 0"/>
   </joint>
 
-  <joint name="joint_tire_right" type="continuous">
-    <origin xyz="0 -0.26 0.10" rpy="0 0 0"/>
-    <parent link="body"/>
-    <child link="tire_right"/>
+  <link name="right_wheel_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="${wheel_mass}"/>
+      <inertia ixx="0.00003" iyy="0.00003" izz="0.00006" ixy="0" iyz="0" ixz="0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://robo_ai/models/delivery_robot/meshes/right_tire.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="wheel_black"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry>
+        <cylinder radius="${wheel_radius}" length="${wheel_width}"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="right_wheel_joint" type="continuous">
+    <origin xyz="0 -${wheel_separation / 2.0} ${wheel_radius - 0.08}" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="right_wheel_link"/>
     <axis xyz="0 1 0"/>
   </joint>
 
-  <joint name="caster_fl_joint" type="fixed">
-    <origin xyz="-0.220 -0.262 0.061" rpy="0 0 0"/>
-    <parent link="body"/>
-    <child link="caster_fl"/>
-  </joint>
+  <link name="caster_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.02"/>
+      <inertia ixx="0.000001" iyy="0.000001" izz="0.000001" ixy="0" iyz="0" ixz="0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.018"/>
+      </geometry>
+      <material name="caster_gray">
+        <color rgba="0.08 0.08 0.08 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.018"/>
+      </geometry>
+    </collision>
+  </link>
 
-  <joint name="caster_bl_joint" type="fixed">
-    <origin xyz="-0.220 0.334 0.061" rpy="0 0 0"/>
-    <parent link="body"/>
-    <child link="caster_bl"/>
+  <joint name="caster_joint" type="fixed">
+    <origin xyz="-0.105 0 ${0.018 - 0.08}" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="caster_link"/>
   </joint>
-
-  <joint name="caster_fr_joint" type="fixed">
-    <origin xyz="0.217 -0.262 0.061" rpy="0 0 0"/>
-    <parent link="body"/>
-    <child link="caster_fr"/>
-  </joint>
-
-  <joint name="caster_br_joint" type="fixed">
-    <origin xyz="0.217 0.334 0.061" rpy="0 0 0"/>
-    <parent link="body"/>
-    <child link="caster_br"/>
-  </joint>
-
-  <!-- =================== SENSORS =================== -->
 
   <link name="lidar">
     <inertial>
-      <origin xyz="0 0 0.004" rpy="0 0 0"/>
-      <mass value="0.026"/>
-      <inertia ixx="0.000006" iyy="0.000006" izz="0.000012" ixy="0" iyz="0" ixz="0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.08"/>
+      <inertia ixx="0.00002" iyy="0.00002" izz="0.00002" ixy="0" iyz="0" ixz="0"/>
     </inertial>
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <origin xyz="0 0 -0.0145" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/lidar.dae" scale="1 1 1"/>
+        <mesh filename="package://robo_ai/models/delivery_robot/meshes/lds.stl" scale="0.001 0.001 0.001"/>
       </geometry>
+      <material name="lidar_black">
+        <color rgba="0.05 0.05 0.05 1.0"/>
+      </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/lidar.dae" scale="1 1 1"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <link name="camera_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.001"/>
-      <inertia ixx="0.000001" iyy="0.000001" izz="0.000001" ixy="0" iyz="0" ixz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/camera_link.dae" scale="1 1 1"/>
-      </geometry>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/camera_link.dae" scale="1 1 1"/>
-      </geometry>
-    </collision>
-  </link>
-
-  <link name="camera_holder">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <mass value="0.001"/>
-      <inertia ixx="0.000001" iyy="0.000001" izz="0.000001" ixy="0" iyz="0" ixz="0"/>
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/camera_holder.dae" scale="1 1 1"/>
-      </geometry>
-    </visual>
-    <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://robo_ai/models/delivery_robot/meshes/camera_holder.dae" scale="1 1 1"/>
+        <cylinder radius="0.035" length="0.035"/>
       </geometry>
     </collision>
   </link>
 
   <joint name="lidar_joint" type="fixed">
-    <origin xyz="0.18 0.0 0.22" rpy="0 0 0"/>
-    <parent link="body"/>
+    <origin xyz="0 0 0.105" rpy="0 0 0"/>
+    <parent link="base_link"/>
     <child link="lidar"/>
   </joint>
 
+  <link name="camera_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.02"/>
+      <inertia ixx="0.000001" iyy="0.000001" izz="0.000001" ixy="0" iyz="0" ixz="0"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 1.5708"/>
+      <geometry>
+        <mesh filename="package://robo_ai/models/delivery_robot/meshes/r200.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.035 0.025 0.025"/>
+      </geometry>
+    </collision>
+  </link>
+
   <joint name="camera_joint" type="fixed">
-    <origin xyz="0.22 0.0 0.12" rpy="0 0 0"/>
-    <parent link="body"/>
+    <origin xyz="0.145 0 0.025" rpy="0 0 0"/>
+    <parent link="base_link"/>
     <child link="camera_link"/>
   </joint>
 
-  <joint name="camera_holder_joint" type="fixed">
-    <origin xyz="0.18 0.0 0.12" rpy="0 0 0"/>
-    <parent link="body"/>
-    <child link="camera_holder"/>
+  <!-- ROS optical frame convention: Z forward, X right, Y down. -->
+  <link name="camera_optical_frame"/>
+
+  <joint name="camera_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
+    <parent link="camera_link"/>
+    <child link="camera_optical_frame"/>
   </joint>
 
 </robot>

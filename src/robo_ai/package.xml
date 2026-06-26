@@ -14,7 +14,7 @@
 
   <export>
     <build_type>ament_cmake</build_type>
-     <gazebo_ros gazebo_model_path="${prefix}/.."/>
+     <gazebo_ros gazebo_model_path="${prefix}/gazebo_models/models"/>
      <gazebo_ros gazebo_ros_package="gazebo_ros"/>
   </export>
 
@@ -25,4 +25,11 @@
   <exec_depend>gazebo_ros_imu</exec_depend>
   <exec_depend>gazebo_ros_camera</exec_depend>
   <exec_depend>gazebo_ros_lidar</exec_depend>
+
+  <!-- Used by launch files to generate URDF from .xacro -->
+  <exec_depend>xacro</exec_depend>
+
+  <!-- Used by state_publisher*.launch.py -->
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
 </package>

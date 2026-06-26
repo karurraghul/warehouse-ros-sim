@@ -5,60 +5,46 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# find dependencies
 find_package(ament_cmake REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # comment the line when a copyright and license is added to all source files
   set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # comment the line when this package is in a git repo and when
-  # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-install(DIRECTORY launch
-  DESTINATION share/${PROJECT_NAME}/
-)
+set(SHARE_DEST share/${PROJECT_NAME})
 
-install(DIRECTORY models/urdf
-  DESTINATION share/${PROJECT_NAME}/models
-)
+# Package resources
+foreach(dir launch config gazebo worlds)
+  install(DIRECTORY ${dir}
+    DESTINATION ${SHARE_DEST}/
+    PATTERN "__pycache__" EXCLUDE
+    PATTERN "*.pyc" EXCLUDE
+  )
+endforeach()
 
-install(DIRECTORY models/meshes
-  DESTINATION share/${PROJECT_NAME}/models
-)
+# Robot assets used by URDF/xacro (package://robo_ai/models/...)
+foreach(dir urdf meshes delivery_robot)
+  install(DIRECTORY models/${dir}
+    DESTINATION ${SHARE_DEST}/models
+  )
+endforeach()
 
-install(DIRECTORY models/delivery_robot
-  DESTINATION share/${PROJECT_NAME}/models
-)
+# Gazebo warehouse models (folders with model.config)
+file(GLOB MODEL_DIRS
+  RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/models"
+  "${CMAKE_CURRENT_SOURCE_DIR}/models/*")
 
-## Install only subfolders in models/ that contain a model.config file
-file(GLOB MODEL_SUBDIRS RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/models" "${CMAKE_CURRENT_SOURCE_DIR}/models/*")
-foreach(sub ${MODEL_SUBDIRS})
-  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/${sub}/model.config")
-    install(DIRECTORY models/${sub}
-      DESTINATION share/${PROJECT_NAME}/models
+foreach(model_dir ${MODEL_DIRS})
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/${model_dir}/model.config")
+    install(DIRECTORY models/${model_dir}
+      DESTINATION ${SHARE_DEST}/gazebo_models/models
     )
   endif()
 endforeach()
 
-install(DIRECTORY config
-  DESTINATION share/${PROJECT_NAME}/
-)
-
-install(DIRECTORY gazebo
-  DESTINATION share/${PROJECT_NAME}/
-)
-
-install(DIRECTORY worlds
-  DESTINATION share/${PROJECT_NAME}/
-)
+ament_environment_hooks("${CMAKE_CURRENT_SOURCE_DIR}/env-hooks/99-robo_ai-gazebo.dsv.in")
 
 ament_package()

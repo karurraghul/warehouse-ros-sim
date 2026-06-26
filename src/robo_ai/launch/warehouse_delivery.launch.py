@@ -23,19 +23,34 @@ def generate_launch_description():
         media_path += pathsep + environ['GAZEBO_RESOURCE_PATH']
 
     pkg_share = get_package_share_directory('robo_ai')
-    robo_ai_models = os.path.join(pkg_share, 'models')
-    if robo_ai_models not in model_path:
-        model_path += pathsep + robo_ai_models
+    # Keep Gazebo default resources (shaders/media) and append this package share.
+    # Warehouse model SDF files use `file://models/...`, which resolve from here.
+    resource_path = media_path
+    for resource_dir in [
+            '/usr/share/gazebo-11',
+            os.path.join(pkg_share, 'gazebo_models')]:
+        if os.path.isdir(resource_dir) and resource_dir not in resource_path:
+            resource_path = resource_path + pathsep + resource_dir if resource_path else resource_dir
 
-    ws_root = os.path.abspath(os.path.join(pkg_share, '..', '..', '..'))
-    warehouse_models = os.path.join(ws_root, 'src', 'small_warehouse', 'models')
-    if os.path.isdir(warehouse_models) and warehouse_models not in model_path:
-        model_path += pathsep + warehouse_models
+    # Ensure the Gazebo plugin loader can find gazebo_ros factory/init plugins.
+    ros_distro = os.environ.get('ROS_DISTRO', 'humble')
+    default_ros_lib = f'/opt/ros/{ros_distro}/lib'
+    if os.path.isdir(default_ros_lib) and default_ros_lib not in plugin_path:
+        plugin_path = plugin_path + pathsep + default_ros_lib if plugin_path else default_ros_lib
+    robo_ai_gazebo_models = os.path.join(pkg_share, 'gazebo_models', 'models')
+    if os.path.isdir(robo_ai_gazebo_models) and robo_ai_gazebo_models not in model_path:
+        model_path = model_path + pathsep + robo_ai_gazebo_models if model_path else robo_ai_gazebo_models
+
+    # Allow `model://robo_ai/...` (converted from URDF `package://robo_ai/...`)
+    # to resolve robot meshes from the install share root that contains robo_ai/.
+    robo_ai_share_root = os.path.dirname(pkg_share)  # .../install/robo_ai/share
+    if robo_ai_share_root not in model_path:
+        model_path = model_path + pathsep + robo_ai_share_root if model_path else robo_ai_share_root
 
     gazebo_env = {
         'GAZEBO_MODEL_PATH': model_path,
         'GAZEBO_PLUGIN_PATH': plugin_path,
-        'GAZEBO_RESOURCE_PATH': media_path,
+        'GAZEBO_RESOURCE_PATH': resource_path,
     }
 
     world_path = os.path.join(pkg_share, 'worlds', 'warehouse.world')
@@ -51,7 +66,7 @@ def generate_launch_description():
     return launch.LaunchDescription([
         SetEnvironmentVariable('GAZEBO_MODEL_PATH', model_path),
         SetEnvironmentVariable('GAZEBO_PLUGIN_PATH', plugin_path),
-        SetEnvironmentVariable('GAZEBO_RESOURCE_PATH', media_path),
+        SetEnvironmentVariable('GAZEBO_RESOURCE_PATH', resource_path),
 
         DeclareLaunchArgument(
             name='use_sim_time', default_value='True',

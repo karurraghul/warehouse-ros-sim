@@ -1,99 +1,97 @@
-<?xml version="1.0" ?>
-
+<?xml version="1.0"?>
 <robot name="delivery_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-    <gazebo>
-        <plugin name="diff_drive_delivery_robot" filename="libgazebo_ros_diff_drive.so">
-            <left_joint>joint_tire_left</left_joint>
-            <right_joint>joint_tire_right</right_joint>
+  <gazebo>
+    <plugin name="diff_drive_delivery_robot" filename="libgazebo_ros_diff_drive.so">
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
 
-            <wheel_separation>0.52</wheel_separation>
-            <wheel_diameter>0.12274</wheel_diameter>
+      <wheel_separation>0.287</wheel_separation>
+      <wheel_diameter>0.066</wheel_diameter>
 
-            <max_wheel_torque>50</max_wheel_torque>
-            <max_wheel_acceleration>1.0</max_wheel_acceleration>
+      <max_wheel_torque>20</max_wheel_torque>
+      <max_wheel_acceleration>1.0</max_wheel_acceleration>
 
-            <publish_odom>true</publish_odom>
-            <publish_odom_tf>true</publish_odom_tf>
-            <publish_wheel_tf>false</publish_wheel_tf>
+      <publish_odom>true</publish_odom>
+      <publish_odom_tf>true</publish_odom_tf>
+      <publish_wheel_tf>false</publish_wheel_tf>
 
-            <odometry_frame>odom</odometry_frame>
-            <robot_base_frame>body</robot_base_frame>
-        </plugin>
-    </gazebo>
+      <odometry_frame>odom</odometry_frame>
+      <robot_base_frame>base_footprint</robot_base_frame>
+      <odometry_source>1</odometry_source>
+    </plugin>
+  </gazebo>
 
-    <!--  ##########  LIDAR PLUGIN  ##########  -->
-    <gazebo reference="lidar">
-        <sensor name="delivery_lidar" type="ray">
-            <always_on>true</always_on>
-            <visualize>true</visualize>
-            <update_rate>10</update_rate>
-            <ray>
-                <scan>
-                    <horizontal>
-                        <samples>720</samples>
-                        <resolution>1.000000</resolution>
-                        <min_angle>-3.14</min_angle>
-                        <max_angle>3.14</max_angle>
-                    </horizontal>
-                </scan>
-                <range>
-                    <min>0.05</min>
-                    <max>20.0</max>
-                    <resolution>0.015000</resolution>
-                </range>
-                <noise>
-                    <type>gaussian</type>
-                    <mean>0.0</mean>
-                    <stddev>0.01</stddev>
-                </noise>
-            </ray>
-            <plugin name="delivery_lidar_controller" filename="libgazebo_ros_ray_sensor.so">
-                <ros>
-                    <remapping>~/out:=scan</remapping>
-                </ros>
-                <output_type>sensor_msgs/LaserScan</output_type>
-                <frame_name>lidar</frame_name>
-            </plugin>
-        </sensor>
-    </gazebo>
+  <gazebo reference="lidar">
+    <sensor name="delivery_lidar" type="ray">
+      <always_on>true</always_on>
+      <visualize>true</visualize>
+      <update_rate>10</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>720</samples>
+            <resolution>1.0</resolution>
+            <min_angle>-3.14159</min_angle>
+            <max_angle>3.14159</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.05</min>
+          <max>20.0</max>
+          <resolution>0.015</resolution>
+        </range>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.01</stddev>
+        </noise>
+      </ray>
+      <plugin name="delivery_lidar_controller" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <remapping>~/out:=scan</remapping>
+        </ros>
+        <output_type>sensor_msgs/LaserScan</output_type>
+        <frame_name>lidar</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
 
-    <!--  ##########  CAMERA PLUGIN  ##########  -->
-    <gazebo reference="camera_link">
-        <sensor type="camera" name="delivery_camera">
-            <update_rate>30.0</update_rate>
-            <camera name="delivery_camera">
-                <horizontal_fov>0.9337511</horizontal_fov>
-                <image>
-                    <width>410</width>
-                    <height>308</height>
-                    <format>R8G8B8</format>
-                </image>
-                <clip>
-                    <near>0.002</near>
-                    <far>300</far>
-                </clip>
-                <noise>
-                    <type>gaussian</type>
-                    <mean>0.0</mean>
-                    <stddev>0.007</stddev>
-                </noise>
-            </camera>
-            <plugin name="delivery_camera_controller" filename="libgazebo_ros_camera.so">
-                <alwaysOn>true</alwaysOn>
-                <updateRate>0.0</updateRate>
-                <cameraName>/delivery_camera</cameraName>
-                <imageTopicName>/image_raw</imageTopicName>
-                <cameraInfoTopicName>camera_info</cameraInfoTopicName>
-                <frameName>camera_link</frameName>
-                <hackBaseline>0.07</hackBaseline>
-                <distortionK1>0.0</distortionK1>
-                <distortionK2>0.0</distortionK2>
-                <distortionK3>0.0</distortionK3>
-                <distortionT1>0.0</distortionT1>
-                <distortionT2>0.0</distortionT2>
-            </plugin>
-        </sensor>
-    </gazebo>
+  <gazebo reference="camera_link">
+    <sensor type="camera" name="delivery_camera">
+      <update_rate>30.0</update_rate>
+      <camera name="delivery_camera">
+        <horizontal_fov>0.9337511</horizontal_fov>
+        <image>
+          <width>640</width>
+          <height>480</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip>
+          <near>0.02</near>
+          <far>50.0</far>
+        </clip>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.007</stddev>
+        </noise>
+      </camera>
+      <plugin name="delivery_camera_controller" filename="libgazebo_ros_camera.so">
+        <alwaysOn>true</alwaysOn>
+        <updateRate>0.0</updateRate>
+        <cameraName>/delivery_camera</cameraName>
+        <imageTopicName>/image_raw</imageTopicName>
+        <cameraInfoTopicName>camera_info</cameraInfoTopicName>
+        <frameName>camera_optical_frame</frameName>
+        <hackBaseline>0.0</hackBaseline>
+        <distortionK1>0.0</distortionK1>
+        <distortionK2>0.0</distortionK2>
+        <distortionK3>0.0</distortionK3>
+        <distortionT1>0.0</distortionT1>
+        <distortionT2>0.0</distortionT2>
+      </plugin>
+    </sensor>
+  </gazebo>
 
 </robot>
