@@ -10,15 +10,16 @@
   <xacro:property name="caster_mu" value="0.01"/>
   <xacro:property name="base_mu" value="0.2"/>
 
+  <!-- Gazebo lumps fixed joints onto base_footprint; material must be set here too. -->
+  <gazebo reference="base_footprint">
+    <material>Gazebo/Grey</material>
+  </gazebo>
+
   <gazebo reference="base_link">
     <mu1>${base_mu}</mu1>
     <mu2>${base_mu}</mu2>
     <gravity>true</gravity>
-    <material>
-      <ambient>0.4 0.4 0.4 1</ambient>
-      <diffuse>0.4 0.4 0.4 1</diffuse>
-      <specular>0.1 0.1 0.1 1</specular>
-    </material>
+    <material>Gazebo/Grey</material>
   </gazebo>
 
   <gazebo reference="left_wheel_link">
@@ -29,11 +30,7 @@
     <minDepth>${drive_wheel_min_depth}</minDepth>
     <fdir1>1 0 0</fdir1>
     <gravity>true</gravity>
-    <material>
-      <ambient>0.3 0.3 0.3 1</ambient>
-      <diffuse>0.3 0.3 0.3 1</diffuse>
-      <specular>0.1 0.1 0.1 1</specular>
-    </material>
+    <material>Gazebo/DarkGrey</material>
   </gazebo>
 
   <gazebo reference="right_wheel_link">
@@ -44,22 +41,14 @@
     <minDepth>${drive_wheel_min_depth}</minDepth>
     <fdir1>1 0 0</fdir1>
     <gravity>true</gravity>
-    <material>
-      <ambient>0.3 0.3 0.3 1</ambient>
-      <diffuse>0.3 0.3 0.3 1</diffuse>
-      <specular>0.1 0.1 0.1 1</specular>
-    </material>
+    <material>Gazebo/DarkGrey</material>
   </gazebo>
 
   <gazebo reference="caster_link">
     <mu1>${caster_mu}</mu1>
     <mu2>${caster_mu}</mu2>
     <gravity>true</gravity>
-    <material>
-      <ambient>0.3 0.3 0.3 1</ambient>
-      <diffuse>0.3 0.3 0.3 1</diffuse>
-      <specular>0.1 0.1 0.1 1</specular>
-    </material>
+    <material>Gazebo/DarkGrey</material>
   </gazebo>
 
   <gazebo reference="lidar">
@@ -67,11 +56,7 @@
     <mu1>0.1</mu1>
     <mu2>0.1</mu2>
     <gravity>true</gravity>
-    <material>
-      <ambient>0.3 0.3 0.3 1</ambient>
-      <diffuse>0.3 0.3 0.3 1</diffuse>
-      <specular>0.1 0.1 0.1 1</specular>
-    </material>
+    <material>Gazebo/DarkGrey</material>
   </gazebo>
 
   <gazebo reference="camera_link">

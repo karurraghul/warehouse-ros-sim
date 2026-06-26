@@ -8,6 +8,8 @@
   <xacro:property name="wheel_separation" value="0.287"/>
   <xacro:property name="base_mass" value="2.0"/>
   <xacro:property name="wheel_mass" value="0.05"/>
+  <!-- Official TB3 Waffle Pi base height above ground. -->
+  <xacro:property name="base_z_offset" value="0.010"/>
 
   <!-- TurtleBot3 common_properties.urdf palette -->
   <material name="black">
@@ -45,7 +47,7 @@
   <link name="base_footprint"/>
 
   <joint name="base_joint" type="fixed">
-    <origin xyz="0 0 0.08" rpy="0 0 0"/>
+    <origin xyz="0 0 ${base_z_offset}" rpy="0 0 0"/>
     <parent link="base_footprint"/>
     <child link="base_link"/>
   </joint>
@@ -57,16 +59,16 @@
       <inertia ixx="0.018" iyy="0.018" izz="0.028" ixy="0" iyz="0" ixz="0"/>
     </inertial>
     <visual>
-      <origin xyz="-0.064 0 -0.07" rpy="0 0 0"/>
+      <origin xyz="-0.064 0 0.0" rpy="0 0 0"/>
       <geometry>
         <mesh filename="package://robo_ai/models/delivery_robot/meshes/waffle_pi_base.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="light_black"/>
     </visual>
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <origin xyz="-0.064 0 0.047" rpy="0 0 0"/>
       <geometry>
-        <box size="0.28 0.22 0.14"/>
+        <box size="0.266 0.266 0.094"/>
       </geometry>
     </collision>
   </link>
@@ -93,7 +95,7 @@
   </link>
 
   <joint name="left_wheel_joint" type="continuous">
-    <origin xyz="0 ${wheel_separation / 2.0} ${wheel_radius - 0.08}" rpy="0 0 0"/>
+    <origin xyz="0 ${wheel_separation / 2.0} ${wheel_radius - base_z_offset}" rpy="0 0 0"/>
     <parent link="base_link"/>
     <child link="left_wheel_link"/>
     <axis xyz="0 1 0"/>
@@ -121,7 +123,7 @@
   </link>
 
   <joint name="right_wheel_joint" type="continuous">
-    <origin xyz="0 -${wheel_separation / 2.0} ${wheel_radius - 0.08}" rpy="0 0 0"/>
+    <origin xyz="0 -${wheel_separation / 2.0} ${wheel_radius - base_z_offset}" rpy="0 0 0"/>
     <parent link="base_link"/>
     <child link="right_wheel_link"/>
     <axis xyz="0 1 0"/>
@@ -149,7 +151,7 @@
   </link>
 
   <joint name="caster_joint" type="fixed">
-    <origin xyz="-0.105 0 ${0.018 - 0.08}" rpy="0 0 0"/>
+    <origin xyz="-0.105 0 ${0.018 - base_z_offset}" rpy="0 0 0"/>
     <parent link="base_link"/>
     <child link="caster_link"/>
   </joint>
@@ -161,7 +163,7 @@
       <inertia ixx="0.00002" iyy="0.00002" izz="0.00002" ixy="0" iyz="0" ixz="0"/>
     </inertial>
     <visual>
-      <origin xyz="0 0 -0.0145" rpy="0 0 0"/>
+      <origin xyz="0 0 0.0" rpy="0 0 0"/>
       <geometry>
         <mesh filename="package://robo_ai/models/delivery_robot/meshes/lds.stl" scale="0.001 0.001 0.001"/>
       </geometry>
@@ -176,7 +178,7 @@
   </link>
 
   <joint name="lidar_joint" type="fixed">
-    <origin xyz="0 0 0.105" rpy="0 0 0"/>
+    <origin xyz="-0.064 0 0.122" rpy="0 0 0"/>
     <parent link="base_link"/>
     <child link="lidar"/>
   </joint>
@@ -202,7 +204,7 @@
   </link>
 
   <joint name="camera_joint" type="fixed">
-    <origin xyz="0.145 0 0.025" rpy="0 0 0"/>
+    <origin xyz="0.073 -0.011 0.084" rpy="0 0 0"/>
     <parent link="base_link"/>
     <child link="camera_link"/>
   </joint>
