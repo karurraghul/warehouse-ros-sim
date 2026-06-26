@@ -9,6 +9,38 @@
   <xacro:property name="base_mass" value="2.0"/>
   <xacro:property name="wheel_mass" value="0.05"/>
 
+  <!-- TurtleBot3 common_properties.urdf palette -->
+  <material name="black">
+    <color rgba="0.0 0.0 0.0 1.0"/>
+  </material>
+  <material name="dark">
+    <color rgba="0.3 0.3 0.3 1.0"/>
+  </material>
+  <material name="light_black">
+    <color rgba="0.4 0.4 0.4 1.0"/>
+  </material>
+  <material name="blue">
+    <color rgba="0.0 0.0 0.8 1.0"/>
+  </material>
+  <material name="green">
+    <color rgba="0.0 0.8 0.0 1.0"/>
+  </material>
+  <material name="grey">
+    <color rgba="0.5 0.5 0.5 1.0"/>
+  </material>
+  <material name="orange">
+    <color rgba="1.0 0.4235 0.0392 1.0"/>
+  </material>
+  <material name="brown">
+    <color rgba="0.8706 0.8118 0.7647 1.0"/>
+  </material>
+  <material name="red">
+    <color rgba="0.8 0.0 0.0 1.0"/>
+  </material>
+  <material name="white">
+    <color rgba="1.0 1.0 1.0 1.0"/>
+  </material>
+
   <!-- Nav2 root frame at ground level. Gazebo drives odom against this frame. -->
   <link name="base_footprint"/>
 
@@ -29,9 +61,7 @@
       <geometry>
         <mesh filename="package://robo_ai/models/delivery_robot/meshes/waffle_pi_base.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="light_black">
-        <color rgba="0.2 0.2 0.2 1.0"/>
-      </material>
+      <material name="light_black"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -52,9 +82,7 @@
       <geometry>
         <mesh filename="package://robo_ai/models/delivery_robot/meshes/left_tire.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="wheel_black">
-        <color rgba="0.05 0.05 0.05 1.0"/>
-      </material>
+      <material name="dark"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="1.5708 0 0"/>
@@ -82,7 +110,7 @@
       <geometry>
         <mesh filename="package://robo_ai/models/delivery_robot/meshes/right_tire.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="wheel_black"/>
+      <material name="dark"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="1.5708 0 0"/>
@@ -110,9 +138,7 @@
       <geometry>
         <sphere radius="0.018"/>
       </geometry>
-      <material name="caster_gray">
-        <color rgba="0.08 0.08 0.08 1.0"/>
-      </material>
+      <material name="dark"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -139,9 +165,7 @@
       <geometry>
         <mesh filename="package://robo_ai/models/delivery_robot/meshes/lds.stl" scale="0.001 0.001 0.001"/>
       </geometry>
-      <material name="lidar_black">
-        <color rgba="0.05 0.05 0.05 1.0"/>
-      </material>
+      <material name="dark"/>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
