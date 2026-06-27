@@ -66,4 +66,12 @@
     <gravity>true</gravity>
   </gazebo>
 
+  <gazebo reference="imu_link">
+    <visualize>true</visualize>
+    <mu1>0.1</mu1>
+    <mu2>0.1</mu2>
+    <gravity>true</gravity>
+    <material>Gazebo/Blue</material>
+  </gazebo>
+
 </robot>
