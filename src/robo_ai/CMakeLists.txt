@@ -17,7 +17,7 @@ endif()
 set(SHARE_DEST share/${PROJECT_NAME})
 
 # Package resources
-foreach(dir launch config gazebo worlds map)
+foreach(dir launch config gazebo worlds maps)
   install(DIRECTORY ${dir}
     DESTINATION ${SHARE_DEST}/
     PATTERN "__pycache__" EXCLUDE
