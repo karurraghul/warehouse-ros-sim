@@ -57,7 +57,7 @@ waypoints:
       - {x: 0.35, y: -2.0, yaw: -1.571}
       - {x: 0.35, y: -3.0, yaw: -1.571}
       - {x: 0.35, y: -4.0, yaw: -1.571}
-      - {x: 0.35, y: -5.0, yaw: -1.571}
+      - {x: 0.35, y: -5.0, yaw: -1.571, dwell_after_sec: 2.0, relocalize_after_dwell: true, relocalize_force: true}
       - {x: 0.35, y: -5.0, yaw: 0.0}
       - {x: -2.0, y: -5.0, yaw: 0.0}
     x: -3.8

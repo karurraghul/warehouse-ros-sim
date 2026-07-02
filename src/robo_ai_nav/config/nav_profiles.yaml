@@ -20,7 +20,7 @@ narrow:
   inflation_radius: 0.18
   cost_scaling_factor: 7.0
   base_obstacle_scale: 0.02
-  xy_goal_tolerance: 0.35
+  xy_goal_tolerance: 0.22
   max_vel_x: 0.15
   static_map_only: true
   local_static_only: false

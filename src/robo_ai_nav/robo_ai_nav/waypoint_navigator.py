@@ -145,6 +145,89 @@ def parse_aruco_ids(marker_json):
     ]
 
 
+def find_robot_pose_map_from_markers(marker_json, expected_id):
+    """Return (x, y, yaw) from ArUco PnP in the latest detection message, if present."""
+    if not marker_json or expected_id is None:
+        return None
+    try:
+        payload = json.loads(marker_json)
+    except json.JSONDecodeError:
+        return None
+    for detection in payload.get('detections', []):
+        if detection.get('type') != 'aruco':
+            continue
+        if int(detection.get('id', -1)) != int(expected_id):
+            continue
+        pose = detection.get('robot_pose_map')
+        if not pose:
+            return None
+        return float(pose['x']), float(pose['y']), float(pose['yaw'])
+    return None
+
+
+def pose_from_amcl(amcl_pose):
+    if amcl_pose is None:
+        return None
+    position = amcl_pose.pose.pose.position
+    yaw = yaw_from_quaternion(amcl_pose.pose.pose.orientation)
+    return position.x, position.y, yaw
+
+
+def validate_pnp_against_amcl(pnp_xyyaw, amcl_pose, max_xy_m, max_yaw_rad):
+    """Return True when PnP is close enough to AMCL to trust as a relocalize seed."""
+    if amcl_pose is None or pnp_xyyaw is None:
+        return True
+    dist, dyaw = pose_delta_xy_yaw(
+        pnp_xyyaw[0], pnp_xyyaw[1], pnp_xyyaw[2], amcl_pose)
+    if dist is None:
+        return True
+    return dist <= max_xy_m and dyaw <= max_yaw_rad
+
+
+def resolve_relocalize_pose(
+        navigator, x_yaml, y_yaml, yaw_yaml, label,
+        latest_markers=None, latest_amcl=None, expected_aruco_id=None,
+        prefer_marker=False, prefer_amcl=False, amcl_max_age_sec=1.0,
+        pnp_max_xy_m=0.4, pnp_max_yaw_rad=0.25):
+    """Choose relocalize seed: validated ArUco PnP, then fresh AMCL, then YAML."""
+    amcl_pose = None if latest_amcl is None else latest_amcl.get('pose')
+    amcl_fresh = amcl_pose_is_fresh(navigator, amcl_pose, amcl_max_age_sec)
+    marker_json = None if latest_markers is None else latest_markers.get('data')
+
+    if prefer_marker and expected_aruco_id is not None:
+        pnp_pose = find_robot_pose_map_from_markers(marker_json, expected_aruco_id)
+        if pnp_pose is not None:
+            if amcl_fresh and not validate_pnp_against_amcl(
+                    pnp_pose, amcl_pose, pnp_max_xy_m, pnp_max_yaw_rad):
+                dist, dyaw = pose_delta_xy_yaw(
+                    pnp_pose[0], pnp_pose[1], pnp_pose[2], amcl_pose)
+                navigator.get_logger().warn(
+                    f'{label}: PnP rejected (delta {dist:.2f}m, {dyaw:.2f}rad vs AMCL); '
+                    f'PnP=({pnp_pose[0]:.2f}, {pnp_pose[1]:.2f}, yaw={pnp_pose[2]:.2f})')
+            else:
+                navigator.get_logger().info(
+                    f'{label}: relocalize from ArUco PnP '
+                    f'({pnp_pose[0]:.2f}, {pnp_pose[1]:.2f}, yaw={pnp_pose[2]:.2f})')
+                return pnp_pose[0], pnp_pose[1], pnp_pose[2], 'pnp'
+
+    if prefer_amcl or prefer_marker:
+        if amcl_fresh:
+            amcl_xyyaw = pose_from_amcl(amcl_pose)
+            if amcl_xyyaw is not None:
+                navigator.get_logger().info(
+                    f'{label}: relocalize from AMCL '
+                    f'({amcl_xyyaw[0]:.2f}, {amcl_xyyaw[1]:.2f}, yaw={amcl_xyyaw[2]:.2f})')
+                return amcl_xyyaw[0], amcl_xyyaw[1], amcl_xyyaw[2], 'amcl'
+        navigator.get_logger().warn(
+            f'{label}: no fresh AMCL pose for relocalize '
+            f'(max age {amcl_max_age_sec:.1f}s); falling back to YAML')
+
+    navigator.get_logger().info(
+        f'{label}: relocalize fallback to YAML '
+        f'({x_yaml:.2f}, {y_yaml:.2f}, yaw={yaw_yaml:.2f})')
+    return float(x_yaml), float(y_yaml), float(yaw_yaml), 'yaml'
+
+
 def make_param(name, value):
     msg = ParamMsg()
     msg.name = name
@@ -500,8 +583,9 @@ def finish_relocalize(navigator, label, post_settle_sec=2.0):
 def relocalize_at_pose(
         navigator, x, y, yaw, label, map_bounds=None, latest_amcl=None,
         min_xy_m=0.15, min_yaw_rad=0.15, max_xy_m=1.0, max_yaw_rad=0.52,
-        settle_sec=1.5, amcl_max_age_sec=1.0, post_settle_sec=2.0, force=False):
-    """Reseed AMCL at a known map pose when drift is moderate and AMCL is healthy."""
+        settle_sec=1.5, amcl_max_age_sec=1.0, post_settle_sec=2.0,
+        force=False, reseed_only=False):
+    """Reseed AMCL at a map pose when drift is moderate and AMCL is healthy."""
     if map_bounds is not None:
         raw_x, raw_y = x, y
         x, y = clamp_to_map(x, y, map_bounds)
@@ -533,13 +617,13 @@ def relocalize_at_pose(
                 f'Skipping relocalize for {label}: AMCL pose unavailable')
             return
 
-    if dist < min_xy_m and dyaw < min_yaw_rad:
+    if dist < min_xy_m and dyaw < min_yaw_rad and not reseed_only:
         navigator.get_logger().info(
             f'Skipping relocalize for {label}: already close to target '
             f'(delta {dist:.2f}m, {dyaw:.2f}rad)')
         return
 
-    if not force and (dist > max_xy_m or dyaw > max_yaw_rad):
+    if not force and not reseed_only and (dist > max_xy_m or dyaw > max_yaw_rad):
         navigator.get_logger().warn(
             f'Large AMCL delta before relocalize for {label}: '
             f'{dist:.2f}m, {dyaw:.2f}rad — waiting {settle_sec:.1f}s for scans')
@@ -560,7 +644,7 @@ def relocalize_at_pose(
             f'Forced relocalize for {label} despite large delta '
             f'{dist:.2f}m, {dyaw:.2f}rad')
 
-    action = 'Forced relocalizing' if force else 'Relocalizing'
+    action = 'Reseeding' if reseed_only else ('Forced relocalizing' if force else 'Relocalizing')
     navigator.get_logger().info(
         f'{action} AMCL after {label} at ({x:.2f}, {y:.2f}, yaw={yaw:.2f}) '
         f'(delta {dist:.2f}m, {dyaw:.2f}rad)')
@@ -661,14 +745,28 @@ def navigate_sequential_poses(
             amcl_settle_dwell(navigator, dwell_after, step_label)
 
         if entry.get('relocalize_after_dwell'):
+            anchor_x = pose.pose.position.x
+            anchor_y = pose.pose.position.y
+            anchor_yaw = yaw_from_pose_stamped(pose)
+            x, y, yaw, _ = resolve_relocalize_pose(
+                navigator,
+                anchor_x,
+                anchor_y,
+                anchor_yaw,
+                step_label,
+                latest_amcl=relocalize_cfg.get('latest_amcl'),
+                prefer_amcl=True,
+                amcl_max_age_sec=relocalize_cfg.get('amcl_max_age_sec', 1.0),
+            )
             relocalize_at_pose(
                 navigator,
-                pose.pose.position.x,
-                pose.pose.position.y,
-                yaw_from_pose_stamped(pose),
+                x,
+                y,
+                yaw,
                 step_label,
                 map_bounds,
                 force=entry.get('relocalize_force', True),
+                reseed_only=True,
                 **relocalize_cfg_kwargs(relocalize_cfg),
             )
 
@@ -786,6 +884,8 @@ def main(args=None):
     navigator.declare_parameter('relocalize_settle_sec', 1.5)
     navigator.declare_parameter('relocalize_post_settle_sec', 2.0)
     navigator.declare_parameter('amcl_pose_max_age_sec', 3.0)
+    navigator.declare_parameter('pnp_max_xy_m', 0.4)
+    navigator.declare_parameter('pnp_max_yaw_rad', 0.25)
 
     waypoints_file = navigator.get_parameter('waypoints_file').value
     nav_profiles_file = navigator.get_parameter('nav_profiles_file').value
@@ -800,6 +900,8 @@ def main(args=None):
         'settle_sec': navigator.get_parameter('relocalize_settle_sec').value,
         'post_settle_sec': navigator.get_parameter('relocalize_post_settle_sec').value,
         'amcl_max_age_sec': navigator.get_parameter('amcl_pose_max_age_sec').value,
+        'pnp_max_xy_m': navigator.get_parameter('pnp_max_xy_m').value,
+        'pnp_max_yaw_rad': navigator.get_parameter('pnp_max_yaw_rad').value,
     }
 
     initial_pose_cfg, waypoints_cfg = load_waypoints_file(waypoints_file)
@@ -886,11 +988,27 @@ def main(args=None):
 
         if wp.get('relocalize_after_scan'):
             force = wp.get('relocalize_force', False)
-            if wp.get('relocalize_from_marker') and marker_confirmed:
-                force = True
+            x, y, yaw, source = resolve_relocalize_pose(
+                navigator,
+                wp['x'],
+                wp['y'],
+                wp['yaw'],
+                wp['name'],
+                latest_markers=latest_markers,
+                latest_amcl=latest_amcl,
+                expected_aruco_id=wp.get('expected_aruco_id'),
+                prefer_marker=bool(wp.get('relocalize_from_marker')),
+                prefer_amcl=True,
+                amcl_max_age_sec=relocalize_cfg.get('amcl_max_age_sec', 1.0),
+                pnp_max_xy_m=relocalize_cfg.get('pnp_max_xy_m', 0.4),
+                pnp_max_yaw_rad=relocalize_cfg.get('pnp_max_yaw_rad', 0.25),
+            )
+            reseed_only = (
+                source == 'amcl' and bool(wp.get('relocalize_from_marker')))
             relocalize_at_pose(
-                navigator, wp['x'], wp['y'], wp['yaw'], wp['name'], map_bounds,
+                navigator, x, y, yaw, wp['name'], map_bounds,
                 force=force,
+                reseed_only=reseed_only,
                 **relocalize_cfg_kwargs(relocalize_cfg))
 
         if not wp.get('skip_scan') and spin_relocalize:
@@ -923,14 +1041,25 @@ def main(args=None):
                     'Retreat from shelf aisle failed; cannot safely reach next waypoint.')
                 break
             if wp.get('relocalize_after_retreat', True):
-                relocalize_at_pose(
+                x, y, yaw, _ = resolve_relocalize_pose(
                     navigator,
                     retreat['x'],
                     retreat['y'],
                     retreat['yaw'],
                     f'retreat anchor after {wp["name"]}',
+                    latest_amcl=latest_amcl,
+                    prefer_amcl=True,
+                    amcl_max_age_sec=relocalize_cfg.get('amcl_max_age_sec', 1.0),
+                )
+                relocalize_at_pose(
+                    navigator,
+                    x,
+                    y,
+                    yaw,
+                    f'retreat anchor after {wp["name"]}',
                     map_bounds,
                     force=retreat.get('force', True),
+                    reseed_only=True,
                     **relocalize_cfg_kwargs(relocalize_cfg))
 
     profile_applier.restore_default()

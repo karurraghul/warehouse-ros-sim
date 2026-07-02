@@ -28,7 +28,7 @@ amcl:
     recovery_alpha_slow: 0.001
     resample_interval: 1
     robot_model_type: "nav2_amcl::DifferentialMotionModel"
-    save_pose_rate: 0.5
+    save_pose_rate: 3.0
     sigma_hit: 0.2
     tf_broadcast: true
     transform_tolerance: 1.0

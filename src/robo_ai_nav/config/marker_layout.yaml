@@ -1,5 +1,6 @@
 # ArUco marker plate poses in the warehouse map frame.
 # Keep in sync with src/robo_ai/worlds/warehouse.world and waypoints.yaml standoffs.
+# ``yaw`` is the Gazebo model yaw (not the outward plate normal).
 
 markers:
   - name: marker_aruco_0
