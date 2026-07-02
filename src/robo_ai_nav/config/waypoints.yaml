@@ -72,8 +72,8 @@ waypoints:
       z: 0.3
       yaw: -0.603732
     retreat_after_scan:
-      x: -3.8
-      y: -9.2
+      x: -3.5
+      y: -9.0
       yaw: 0.0
     retreat_nav_profile: narrow
     retreat_retry_on_fail: true
@@ -85,16 +85,16 @@ waypoints:
     retry_on_fail: true
     pause_before_sec: 1.0
     through_poses:
-      - {x: -3.5, y: -9.2, yaw: 0.0}
-      - {x: -2.5, y: -9.2, yaw: 0.0}
-      - {x: -2.0, y: -9.2, yaw: 0.0}
-      - {x: -0.55, y: -9.2, yaw: 0.0}
+      - {x: -3.5, y: -9.0, yaw: 0.0}
+      - {x: -2.5, y: -9.0, yaw: 0.0}
+      - {x: -2.0, y: -9.0, yaw: 0.0}
+      - {x: -0.55, y: -9.0, yaw: 0.0}
     x: 0.5
     y: -9.55
     yaw: -1.571
     expected_aruco_id: 3
     marker_pose:
       x: 0.5
-      y: -9.2
+      y: -9.0
       z: 0.3
       yaw: 1.571
