@@ -1,17 +1,19 @@
 # Nav2 parameter overrides applied per waypoint leg by waypoint_navigator.
-# Profiles switch inflation, cost falloff, and DWB obstacle weight at runtime.
+# Profiles switch inflation, cost falloff, DWB obstacle weight, and max speed at runtime.
 
 default:
   inflation_radius: 0.45
   cost_scaling_factor: 3.0
   base_obstacle_scale: 0.08
   xy_goal_tolerance: 0.35
+  max_vel_x: 0.26
 
 tight:
   inflation_radius: 0.28
   cost_scaling_factor: 5.0
   base_obstacle_scale: 0.06
   xy_goal_tolerance: 0.25
+  max_vel_x: 0.18
 
 # Dock clutter belt — static global map only; keep local lidar for live avoidance.
 narrow:
@@ -19,5 +21,6 @@ narrow:
   cost_scaling_factor: 7.0
   base_obstacle_scale: 0.02
   xy_goal_tolerance: 0.35
+  max_vel_x: 0.15
   static_map_only: true
   local_static_only: false

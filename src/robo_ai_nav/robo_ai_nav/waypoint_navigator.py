@@ -165,6 +165,46 @@ def make_double_param(name, value):
     return make_param(name, value)
 
 
+def make_double_array_param(name, values):
+    msg = ParamMsg()
+    msg.name = name
+    msg.value = ParameterValue(
+        type=ParameterType.PARAMETER_DOUBLE_ARRAY,
+        double_array_value=[float(v) for v in values],
+    )
+    return msg
+
+
+def normalize_angle(angle):
+    while angle > math.pi:
+        angle -= 2.0 * math.pi
+    while angle < -math.pi:
+        angle += 2.0 * math.pi
+    return angle
+
+
+def pose_delta_xy_yaw(target_x, target_y, target_yaw, amcl_pose):
+    if amcl_pose is None:
+        return None, None
+    position = amcl_pose.pose.pose.position
+    orientation = amcl_pose.pose.pose.orientation
+    dist = math.hypot(
+        float(target_x) - position.x,
+        float(target_y) - position.y,
+    )
+    dyaw = abs(normalize_angle(
+        float(target_yaw) - yaw_from_quaternion(orientation)))
+    return dist, dyaw
+
+
+def amcl_pose_is_fresh(navigator, amcl_pose, max_age_sec=1.0):
+    if amcl_pose is None:
+        return False
+    stamp = rclpy.time.Time.from_msg(amcl_pose.header.stamp)
+    age_sec = (navigator.get_clock().now() - stamp).nanoseconds / 1e9
+    return age_sec <= max_age_sec
+
+
 class NavProfileApplier:
     """Apply Nav2 costmap/controller params for per-waypoint navigation profiles."""
 
@@ -193,9 +233,13 @@ class NavProfileApplier:
             return False
 
         request = SetParameters.Request()
-        request.parameters = [
-            make_param(name, value) for name, value in param_dict.items()
-        ]
+        params = []
+        for name, value in param_dict.items():
+            if isinstance(value, (list, tuple)):
+                params.append(make_double_array_param(name, value))
+            else:
+                params.append(make_param(name, value))
+        request.parameters = params
         future = client.call_async(request)
         rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
         if not future.done() or future.result() is None:
@@ -223,12 +267,14 @@ class NavProfileApplier:
         xy_tol = profile['xy_goal_tolerance']
         cost_scale = profile.get('cost_scaling_factor', 3.0)
         obstacle_scale = profile.get('base_obstacle_scale', 0.08)
+        max_vel_x = float(profile.get('max_vel_x', 0.26))
         static_map_only = profile.get('static_map_only', False)
         local_static_only = profile.get('local_static_only', False)
         self._node.get_logger().info(
             f"Applying nav profile '{profile_name}' for {waypoint_name} "
             f'(inflation={inflation}, cost_scale={cost_scale}, '
-            f'obstacle_scale={obstacle_scale}, static_map_only={static_map_only}, '
+            f'obstacle_scale={obstacle_scale}, max_vel_x={max_vel_x}, '
+            f'static_map_only={static_map_only}, '
             f'local_static_only={local_static_only}, xy_tol={xy_tol})')
 
         costmap_params = {
@@ -253,7 +299,13 @@ class NavProfileApplier:
             {
                 'general_goal_checker.xy_goal_tolerance': xy_tol,
                 'FollowPath.BaseObstacle.scale': obstacle_scale,
+                'FollowPath.max_vel_x': max_vel_x,
+                'FollowPath.max_speed_xy': max_vel_x,
             },
+        ) and ok
+        ok = self._set_params(
+            '/velocity_smoother',
+            {'max_velocity': [max_vel_x, 0.0, 1.0]},
         ) and ok
         return ok
 
@@ -403,8 +455,53 @@ def build_pose_list(navigator, wp):
     return poses
 
 
-def relocalize_at_pose(navigator, x, y, yaw, label, map_bounds=None):
-    """Reseed AMCL at a known map pose (reduces sim drift between short legs)."""
+def build_sequential_steps(navigator, wp):
+    """Build ordered sequential legs with optional per-step dwell_after_sec."""
+    steps = []
+    for point in wp.get('through_poses', []):
+        steps.append({
+            'pose': make_pose_stamped(navigator, point['x'], point['y'], point['yaw']),
+            'dwell_after_sec': float(point.get('dwell_after_sec', 0.0)),
+            'relocalize_after_dwell': bool(point.get('relocalize_after_dwell', False)),
+            'relocalize_force': bool(point.get('relocalize_force', False)),
+        })
+    steps.append({
+        'pose': make_pose_stamped(navigator, wp['x'], wp['y'], wp['yaw']),
+        'dwell_after_sec': float(wp.get('dwell_after_sec', 0.0)),
+        'relocalize_after_dwell': bool(wp.get('relocalize_after_dwell', False)),
+        'relocalize_force': bool(wp.get('relocalize_force', False)),
+    })
+    return steps
+
+
+def relocalize_cfg_kwargs(relocalize_cfg):
+    return {
+        'latest_amcl': relocalize_cfg.get('latest_amcl'),
+        'min_xy_m': relocalize_cfg.get('min_xy_m', 0.15),
+        'min_yaw_rad': relocalize_cfg.get('min_yaw_rad', 0.15),
+        'max_xy_m': relocalize_cfg.get('max_xy_m', 1.0),
+        'max_yaw_rad': relocalize_cfg.get('max_yaw_rad', 0.52),
+        'settle_sec': relocalize_cfg.get('settle_sec', 1.5),
+        'amcl_max_age_sec': relocalize_cfg.get('amcl_max_age_sec', 1.0),
+        'post_settle_sec': relocalize_cfg.get('post_settle_sec', 2.0),
+    }
+
+
+def finish_relocalize(navigator, label, post_settle_sec=2.0):
+    """Let AMCL absorb /initialpose, refresh costmaps, then hold for scan matching."""
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        rclpy.spin_once(navigator, timeout_sec=0.1)
+    navigator.clearAllCostmaps()
+    if post_settle_sec > 0.0:
+        amcl_settle_dwell(navigator, post_settle_sec, f'{label} (post-relocalize)')
+
+
+def relocalize_at_pose(
+        navigator, x, y, yaw, label, map_bounds=None, latest_amcl=None,
+        min_xy_m=0.15, min_yaw_rad=0.15, max_xy_m=1.0, max_yaw_rad=0.52,
+        settle_sec=1.5, amcl_max_age_sec=1.0, post_settle_sec=2.0, force=False):
+    """Reseed AMCL at a known map pose when drift is moderate and AMCL is healthy."""
     if map_bounds is not None:
         raw_x, raw_y = x, y
         x, y = clamp_to_map(x, y, map_bounds)
@@ -412,14 +509,63 @@ def relocalize_at_pose(navigator, x, y, yaw, label, map_bounds=None):
             navigator.get_logger().warn(
                 f'Clamped relocalize pose for {label} from '
                 f'({raw_x:.2f}, {raw_y:.2f}) to ({x:.2f}, {y:.2f})')
+
+    amcl_pose = None if latest_amcl is None else latest_amcl.get('pose')
+    if not amcl_pose_is_fresh(navigator, amcl_pose, amcl_max_age_sec):
+        if force:
+            navigator.get_logger().warn(
+                f'Forced relocalize for {label} with stale /amcl_pose '
+                f'(max age {amcl_max_age_sec:.1f}s)')
+        else:
+            navigator.get_logger().warn(
+                f'Skipping relocalize for {label}: no fresh /amcl_pose '
+                f'(max age {amcl_max_age_sec:.1f}s)')
+            return
+
+    dist, dyaw = pose_delta_xy_yaw(x, y, yaw, amcl_pose)
+    if dist is None:
+        if force:
+            navigator.get_logger().warn(
+                f'Forced relocalize for {label} without AMCL pose reference')
+            dist, dyaw = float('inf'), float('inf')
+        else:
+            navigator.get_logger().warn(
+                f'Skipping relocalize for {label}: AMCL pose unavailable')
+            return
+
+    if dist < min_xy_m and dyaw < min_yaw_rad:
+        navigator.get_logger().info(
+            f'Skipping relocalize for {label}: already close to target '
+            f'(delta {dist:.2f}m, {dyaw:.2f}rad)')
+        return
+
+    if not force and (dist > max_xy_m or dyaw > max_yaw_rad):
+        navigator.get_logger().warn(
+            f'Large AMCL delta before relocalize for {label}: '
+            f'{dist:.2f}m, {dyaw:.2f}rad — waiting {settle_sec:.1f}s for scans')
+        amcl_settle_dwell(navigator, settle_sec, label)
+        amcl_pose = latest_amcl.get('pose')
+        if not amcl_pose_is_fresh(navigator, amcl_pose, amcl_max_age_sec):
+            navigator.get_logger().warn(
+                f'Skipping relocalize for {label}: /amcl_pose stale after settle')
+            return
+        dist, dyaw = pose_delta_xy_yaw(x, y, yaw, amcl_pose)
+        if dist > max_xy_m or dyaw > max_yaw_rad:
+            navigator.get_logger().warn(
+                f'Skipping relocalize for {label}: delta still '
+                f'{dist:.2f}m, {dyaw:.2f}rad after settle (scan/TF may be backlogged)')
+            return
+    elif force and (dist > max_xy_m or dyaw > max_yaw_rad):
+        navigator.get_logger().warn(
+            f'Forced relocalize for {label} despite large delta '
+            f'{dist:.2f}m, {dyaw:.2f}rad')
+
+    action = 'Forced relocalizing' if force else 'Relocalizing'
     navigator.get_logger().info(
-        f'Relocalizing AMCL after {label} at ({x:.2f}, {y:.2f}, yaw={yaw:.2f})')
+        f'{action} AMCL after {label} at ({x:.2f}, {y:.2f}, yaw={yaw:.2f}) '
+        f'(delta {dist:.2f}m, {dyaw:.2f}rad)')
     navigator.setInitialPose(make_pose_stamped(navigator, x, y, yaw))
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline:
-        rclpy.spin_once(navigator, timeout_sec=0.1)
-    navigator.clearLocalCostmap()
-    time.sleep(0.5)
+    finish_relocalize(navigator, label, post_settle_sec)
 
 
 def force_relocalize_via_spin(navigator, label, spin_dist=1.57, time_allowance=10):
@@ -487,11 +633,13 @@ def navigate_single_pose_with_reroute(navigator, pose, step_label):
 
 
 def navigate_sequential_poses(
-        navigator, poses, leg_label, retry_on_fail=False, relocalize_steps=False,
-        map_bounds=None):
+        navigator, steps, leg_label, retry_on_fail=False, relocalize_steps=False,
+        map_bounds=None, relocalize_cfg=None):
     """Force each pose in order — optional offset rerouting on failure."""
-    for step, pose in enumerate(poses, start=1):
-        step_label = f'{leg_label} [{step}/{len(poses)}]'
+    relocalize_cfg = relocalize_cfg or {}
+    for step, entry in enumerate(steps, start=1):
+        pose = entry['pose']
+        step_label = f'{leg_label} [{step}/{len(steps)}]'
         navigator.get_logger().info(
             f'Sequential leg: {step_label} -> '
             f'({pose.pose.position.x:.2f}, {pose.pose.position.y:.2f})')
@@ -507,7 +655,12 @@ def navigate_sequential_poses(
                 f'Failed {step_label} (result={step_result})')
             return step_result
         navigator.get_logger().info(f'Reached {step_label}')
-        if relocalize_steps and step < len(poses):
+
+        dwell_after = float(entry.get('dwell_after_sec', 0.0))
+        if dwell_after > 0.0:
+            amcl_settle_dwell(navigator, dwell_after, step_label)
+
+        if entry.get('relocalize_after_dwell'):
             relocalize_at_pose(
                 navigator,
                 pose.pose.position.x,
@@ -515,19 +668,53 @@ def navigate_sequential_poses(
                 yaw_from_pose_stamped(pose),
                 step_label,
                 map_bounds,
+                force=entry.get('relocalize_force', True),
+                **relocalize_cfg_kwargs(relocalize_cfg),
+            )
+
+        if relocalize_steps and step < len(steps):
+            relocalize_at_pose(
+                navigator,
+                pose.pose.position.x,
+                pose.pose.position.y,
+                yaw_from_pose_stamped(pose),
+                step_label,
+                map_bounds,
+                **relocalize_cfg_kwargs(relocalize_cfg),
             )
     return TaskResult.SUCCEEDED
 
 
-def navigate_to_pose(navigator, wp, leg_label, profile_applier):
+def apply_relocalize_before(navigator, wp, leg_label, map_bounds, relocalize_cfg):
+    anchor = wp.get('relocalize_before')
+    if not anchor:
+        return
+    relocalize_at_pose(
+        navigator,
+        anchor['x'],
+        anchor['y'],
+        anchor['yaw'],
+        f'{leg_label} (pre-leg anchor)',
+        map_bounds,
+        force=anchor.get('force', True),
+        **relocalize_cfg_kwargs(relocalize_cfg),
+    )
+
+
+def navigate_to_pose(navigator, wp, leg_label, profile_applier, relocalize_cfg=None):
     if not validate_goal_clearance(navigator, wp, leg_label):
         return TaskResult.FAILED
+
+    relocalize_cfg = relocalize_cfg or {}
 
     pause_sec = float(wp.get('pause_before_sec', 0.0))
     if pause_sec > 0.0:
         navigator.get_logger().info(
             f'Pausing {pause_sec:.1f}s before {leg_label} (AMCL/costmap settle)')
         time.sleep(pause_sec)
+
+    apply_relocalize_before(
+        navigator, wp, leg_label, profile_applier.map_bounds, relocalize_cfg)
 
     profile_name = wp.get('nav_profile', 'default')
     profile_applier.apply(profile_name, leg_label)
@@ -536,13 +723,15 @@ def navigate_to_pose(navigator, wp, leg_label, profile_applier):
     if through_poses:
         poses = build_pose_list(navigator, wp)
         if wp.get('force_sequential', False):
+            steps = build_sequential_steps(navigator, wp)
             navigator.get_logger().info(
-                f'Forced sequential navigation through {len(poses)} poses: {leg_label}')
+                f'Forced sequential navigation through {len(steps)} poses: {leg_label}')
             return navigate_sequential_poses(
-                navigator, poses, leg_label,
+                navigator, steps, leg_label,
                 retry_on_fail=wp.get('retry_on_fail', False),
                 relocalize_steps=wp.get('relocalize_steps', False),
-                map_bounds=profile_applier.map_bounds)
+                map_bounds=profile_applier.map_bounds,
+                relocalize_cfg=relocalize_cfg)
 
         navigator.get_logger().info(
             f'Navigating through {len(poses)} poses: {leg_label} '
@@ -590,12 +779,28 @@ def main(args=None):
     navigator.declare_parameter('shutdown_nav2_on_exit', True)
     navigator.declare_parameter('shutdown_nav2_on_failure', False)
     navigator.declare_parameter('scan_dwell_sec', 2.0)
+    navigator.declare_parameter('relocalize_min_xy_m', 0.15)
+    navigator.declare_parameter('relocalize_min_yaw_rad', 0.15)
+    navigator.declare_parameter('relocalize_max_xy_m', 1.0)
+    navigator.declare_parameter('relocalize_max_yaw_rad', 0.52)
+    navigator.declare_parameter('relocalize_settle_sec', 1.5)
+    navigator.declare_parameter('relocalize_post_settle_sec', 2.0)
+    navigator.declare_parameter('amcl_pose_max_age_sec', 3.0)
 
     waypoints_file = navigator.get_parameter('waypoints_file').value
     nav_profiles_file = navigator.get_parameter('nav_profiles_file').value
     shutdown_on_exit = navigator.get_parameter('shutdown_nav2_on_exit').value
     shutdown_on_failure = navigator.get_parameter('shutdown_nav2_on_failure').value
     scan_dwell_sec = navigator.get_parameter('scan_dwell_sec').value
+    relocalize_params = {
+        'min_xy_m': navigator.get_parameter('relocalize_min_xy_m').value,
+        'min_yaw_rad': navigator.get_parameter('relocalize_min_yaw_rad').value,
+        'max_xy_m': navigator.get_parameter('relocalize_max_xy_m').value,
+        'max_yaw_rad': navigator.get_parameter('relocalize_max_yaw_rad').value,
+        'settle_sec': navigator.get_parameter('relocalize_settle_sec').value,
+        'post_settle_sec': navigator.get_parameter('relocalize_post_settle_sec').value,
+        'amcl_max_age_sec': navigator.get_parameter('amcl_pose_max_age_sec').value,
+    }
 
     initial_pose_cfg, waypoints_cfg = load_waypoints_file(waypoints_file)
     nav_profiles = load_yaml_file(nav_profiles_file)
@@ -610,6 +815,7 @@ def main(args=None):
     latest_markers = {}
     latest_amcl = {'pose': None}
     amcl_ready = {'value': False}
+    relocalize_cfg = dict(relocalize_params, latest_amcl=latest_amcl)
 
     def on_detected_markers(msg: String):
         latest_markers['data'] = msg.data
@@ -648,7 +854,8 @@ def main(args=None):
     for index, wp in enumerate(waypoints_cfg):
         latest_markers.pop('data', None)
         leg_label = f'waypoint {index + 1}/{len(waypoints_cfg)}: {wp["name"]}'
-        leg_result = navigate_to_pose(navigator, wp, leg_label, profile_applier)
+        leg_result = navigate_to_pose(
+            navigator, wp, leg_label, profile_applier, relocalize_cfg)
         if leg_result != TaskResult.SUCCEEDED:
             overall_result = leg_result
             break
@@ -663,23 +870,31 @@ def main(args=None):
             navigator.clearLocalCostmap()
             time.sleep(0.5)
 
+        marker_confirmed = False
         if not wp.get('skip_scan'):
             expected = wp.get('expected_aruco_id')
-            dwell_for_scan(
+            marker_confirmed = dwell_for_scan(
                 navigator, scan_dwell_sec, expected, latest_markers)
             log_waypoint_scan(
                 navigator, wp, latest_markers.get('data'), latest_amcl['pose'])
 
-            spin_relocalize = wp.get(
-                'spin_relocalize_after_scan',
-                expected is not None,
-            )
-            if spin_relocalize:
-                force_relocalize_via_spin(navigator, wp['name'])
+        spin_relocalize = wp.get('spin_relocalize_after_scan', False)
+        if wp.get('relocalize_after_scan') and spin_relocalize:
+            navigator.get_logger().info(
+                f'{wp["name"]}: relocalize-before-spin; '
+                f'AMCL will not be reseeded after spin')
 
         if wp.get('relocalize_after_scan'):
+            force = wp.get('relocalize_force', False)
+            if wp.get('relocalize_from_marker') and marker_confirmed:
+                force = True
             relocalize_at_pose(
-                navigator, wp['x'], wp['y'], wp['yaw'], wp['name'], map_bounds)
+                navigator, wp['x'], wp['y'], wp['yaw'], wp['name'], map_bounds,
+                force=force,
+                **relocalize_cfg_kwargs(relocalize_cfg))
+
+        if not wp.get('skip_scan') and spin_relocalize:
+            force_relocalize_via_spin(navigator, wp['name'])
 
         retreat = wp.get('retreat_after_scan')
         if retreat:
@@ -701,12 +916,22 @@ def main(args=None):
                 f'Backing out of aisle before next waypoint -> '
                 f'({retreat_wp["x"]}, {retreat_wp["y"]}, yaw={retreat_wp["yaw"]})')
             retreat_result = navigate_to_pose(
-                navigator, retreat_wp, retreat_label, profile_applier)
+                navigator, retreat_wp, retreat_label, profile_applier, relocalize_cfg)
             if retreat_result != TaskResult.SUCCEEDED:
                 overall_result = retreat_result
                 navigator.get_logger().error(
                     'Retreat from shelf aisle failed; cannot safely reach next waypoint.')
                 break
+            if wp.get('relocalize_after_retreat', True):
+                relocalize_at_pose(
+                    navigator,
+                    retreat['x'],
+                    retreat['y'],
+                    retreat['yaw'],
+                    f'retreat anchor after {wp["name"]}',
+                    map_bounds,
+                    force=retreat.get('force', True),
+                    **relocalize_cfg_kwargs(relocalize_cfg))
 
     profile_applier.restore_default()
 

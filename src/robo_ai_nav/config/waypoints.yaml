@@ -1,7 +1,7 @@
 # Map-frame waypoints — short legs through center aisle, no retreats.
 #
 # Map bounds (warehouse_map.yaml): x=[-8.16, 7.49], y=[-13.0, 8.95]
-# WP0 scan -> one sequential block to marker 1 -> south -> marker 2 -> dock M3.
+# WP0 scan -> row0/marker 1 -> south (AMCL dwell at aisle peel) -> marker 2 -> M3.
 
 initial_pose:
   x: 0.0
@@ -18,6 +18,8 @@ waypoints:
     min_clear_x: 2.5
     nav_profile: default
     relocalize_after_scan: true
+    relocalize_from_marker: true
+    spin_relocalize_after_scan: false
 
   # From WP0: peel west on the row, drive north, scan marker 1 (no separate west retreat leg).
   - name: wp_row0_to_marker_1
@@ -34,22 +36,15 @@ waypoints:
     yaw: 1.571
     expected_aruco_id: 1
     relocalize_after_scan: true
-    spin_relocalize_after_scan: true
+    relocalize_from_marker: true
+    spin_relocalize_after_scan: false
     marker_pose:
       x: 0.0
       y: 6.5
       z: 0.3
       yaw: 1.571
 
-  - name: wp_transit_south_mid
-    x: 0.35
-    y: 1.0
-    yaw: -1.571
-    skip_scan: true
-    nav_profile: tight
-    dwell_after_sec: 3.0
-
-  # South on x=0.35, rotate in place, then straight west (no diagonal through-pose).
+  # South on x=0.35: pause in place at known aisle peel pose, then continue south/west.
   - name: wp_transit_south_to_west
     nav_profile: tight
     force_sequential: true
@@ -58,6 +53,7 @@ waypoints:
     skip_scan: true
     pause_before_sec: 1.0
     through_poses:
+      - {x: 0.35, y: 0.57943, yaw: -1.571, dwell_after_sec: 3.0, relocalize_after_dwell: true, relocalize_force: true}
       - {x: 0.35, y: -2.0, yaw: -1.571}
       - {x: 0.35, y: -3.0, yaw: -1.571}
       - {x: 0.35, y: -4.0, yaw: -1.571}
@@ -75,7 +71,8 @@ waypoints:
     expected_aruco_id: 2
     nav_profile: default
     relocalize_after_scan: true
-    spin_relocalize_after_scan: true
+    relocalize_from_marker: true
+    spin_relocalize_after_scan: false
     clear_costmap_before_retreat: true
     marker_pose:
       x: -3.74722
@@ -86,6 +83,7 @@ waypoints:
       x: -3.5
       y: -9.0
       yaw: 0.0
+      force: true
     retreat_nav_profile: narrow
     retreat_retry_on_fail: true
 
@@ -98,7 +96,7 @@ waypoints:
     pause_before_sec: 1.0
     through_poses:
       - {x: -3.5, y: -9.0, yaw: 0.0}
-      - {x: -2.5, y: -9.0, yaw: 0.0}
+      - {x: -2.5, y: -9.0, yaw: 0.0, dwell_after_sec: 1.5, relocalize_after_dwell: true, relocalize_force: true}
       - {x: -2.0, y: -9.0, yaw: 0.0}
       - {x: -0.55, y: -9.0, yaw: 0.0}
     x: 0.5
@@ -106,7 +104,9 @@ waypoints:
     yaw: -1.571
     expected_aruco_id: 3
     relocalize_after_scan: true
-    spin_relocalize_after_scan: true
+    relocalize_from_marker: true
+    relocalize_force: true
+    spin_relocalize_after_scan: false
     marker_pose:
       x: 0.5
       y: -9.0

@@ -1,6 +1,7 @@
 <sdf version='1.7'>
   <world name='default'>
     <gravity>0 0 -9.8</gravity>
+    <!-- real_time_factor=1 keeps /clock aligned with wall time; RTF>1 can backlog scan TF filters -->
     <physics name='default_physics' default='0' type='ode'>
       <max_step_size>0.001</max_step_size>
       <real_time_factor>1</real_time_factor>

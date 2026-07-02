@@ -147,7 +147,7 @@ Visualization Manager:
       Class: rviz_default_plugins/LaserScan
       Color: 255; 255; 255
       Color Transformer: Intensity
-      Decay Time: 0
+      Decay Time: 0.5
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
@@ -163,7 +163,7 @@ Visualization Manager:
       Topic:
         Depth: 5
         Durability Policy: Volatile
-        Filter size: 10
+        Filter size: 30
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /scan
