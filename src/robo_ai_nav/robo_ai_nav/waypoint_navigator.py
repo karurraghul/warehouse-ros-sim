@@ -218,9 +218,16 @@ def navigate_to_pose(navigator, wp, leg_label, profile_applier, latest_markers):
         if 'data' in latest_markers:
             seen = parse_aruco_ids(latest_markers['data'])
             if seen:
-                navigator.get_logger().info(
-                    f'Live detection while navigating to {leg_label}: '
-                    f'ArUco ids={seen}')
+                expected = wp.get('expected_aruco_id')
+                if expected is not None:
+                    if expected in seen:
+                        navigator.get_logger().info(
+                            f'Live detection while navigating to {leg_label}: '
+                            f'expected ArUco id={expected} seen')
+                elif not wp.get('skip_scan'):
+                    navigator.get_logger().info(
+                        f'Live detection while navigating to {leg_label}: '
+                        f'ArUco ids={seen}')
 
     leg_result = navigator.getResult()
     if leg_result != TaskResult.SUCCEEDED:
@@ -244,7 +251,7 @@ def main(args=None):
         os.path.join(pkg_share, 'config', 'nav_profiles.yaml'))
     navigator.declare_parameter('shutdown_nav2_on_exit', True)
     navigator.declare_parameter('shutdown_nav2_on_failure', False)
-    navigator.declare_parameter('scan_dwell_sec', 4.0)
+    navigator.declare_parameter('scan_dwell_sec', 6.0)
 
     waypoints_file = navigator.get_parameter('waypoints_file').value
     nav_profiles_file = navigator.get_parameter('nav_profiles_file').value

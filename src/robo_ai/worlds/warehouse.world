@@ -1675,7 +1675,7 @@
         <enable_wind>0</enable_wind>
         <kinematic>0</kinematic>
       </link>
-      <pose>-1 6.5 0.3 0 -0 1.571</pose>
+      <pose>0 6.5 0.3 0 -0 1.571</pose>
     </model>
     <model name='marker_aruco_2_001'>
       <frame name='marker_aruco_2::__model__' attached_to='marker_aruco_2::link'>
@@ -1703,7 +1703,7 @@
         <enable_wind>0</enable_wind>
         <kinematic>0</kinematic>
       </link>
-      <pose>-2.5 -7.75 0.3 0 -0 0</pose>
+    <pose>-3.74722 -8.51815 0.3 0 -0 -0.603732</pose>
     </model>
     <model name='marker_aruco_3_001'>
       <frame name='marker_aruco_3::__model__' attached_to='marker_aruco_3::link'>
@@ -1753,7 +1753,7 @@
     </light>
     <gui fullscreen='0'>
       <camera name='user_camera'>
-        <pose>-2.83374 -5.61793 3.12987 0 1.00179 -1.66701</pose>
+        <pose>-3.33861 -4.76247 1.57866 -0 0.42979 -1.25101</pose>
         <view_controller>orbit</view_controller>
         <projection_type>perspective</projection_type>
       </camera>
@@ -2260,10 +2260,10 @@
       <pose>0 0 0 0 -0 0</pose>
     </model>
     <state world_name='default'>
-      <sim_time>182 607000000</sim_time>
-      <real_time>185 472203981</real_time>
-      <wall_time>1782998459 483621487</wall_time>
-      <iterations>182607</iterations>
+      <sim_time>349 407000000</sim_time>
+      <real_time>167 766479904</real_time>
+      <wall_time>1783000165 644047159</wall_time>
+      <iterations>166800</iterations>
       <model name='aws_robomaker_warehouse_Bucket_01_020'>
         <pose>0.433449 9.63171 0 0 0 -1.56316</pose>
         <scale>1 1 1</scale>
@@ -2345,7 +2345,7 @@
         </link>
       </model>
       <model name='aws_robomaker_warehouse_ClutteringC_01_029'>
-        <pose>5.38424 6.13715 0 0 -0 -3.13319</pose>
+        <pose>5.38424 6.13715 0 0 0 -3.13319</pose>
         <scale>1 1 1</scale>
         <link name='aws_robomaker_warehouse_ClutteringC_01::link'>
           <pose>5.38424 6.13715 0 0 -0 -3.13319</pose>
@@ -2355,7 +2355,7 @@
         </link>
       </model>
       <model name='aws_robomaker_warehouse_ClutteringC_01_030'>
-        <pose>3.236 6.13715 0 0 -0 -3.13319</pose>
+        <pose>3.236 6.13715 0 0 0 -3.13319</pose>
         <scale>1 1 1</scale>
         <link name='aws_robomaker_warehouse_ClutteringC_01::link'>
           <pose>3.236 6.13715 0 0 -0 -3.13319</pose>
@@ -2515,25 +2515,25 @@
         </link>
       </model>
       <model name='delivery_robot'>
-        <pose>0.054998 -0.000138 0.033218 3e-06 0.009592 -9e-06</pose>
+        <pose>0.054998 -0.000141 0.033218 3e-06 0.009592 -9e-06</pose>
         <scale>1 1 1</scale>
         <link name='base_footprint'>
-          <pose>0.054998 -0.000138 0.033218 3e-06 0.009592 -9e-06</pose>
+          <pose>0.054998 -0.000141 0.033218 3e-06 0.009592 -9e-06</pose>
           <velocity>0 0 2e-05 6e-06 -0.000184 0</velocity>
-          <acceleration>-0 -0 -1e-06 0 -1.8e-05 0</acceleration>
-          <wrench>-1e-06 -0 -1e-06 0 -0 0</wrench>
+          <acceleration>0 0 1e-06 0 2.1e-05 0</acceleration>
+          <wrench>1e-06 0 2e-06 0 -0 0</wrench>
         </link>
         <link name='left_wheel_link'>
-          <pose>0.055316 0.143362 0.066217 1.68463 1.57075 1.68462</pose>
+          <pose>0.055316 0.143359 0.066217 1.68464 1.57075 1.68464</pose>
           <velocity>-5e-06 -0 0 6.6e-05 -0.000146 1e-06</velocity>
-          <acceleration>-0 -0 0 0 -1.5e-05 0</acceleration>
-          <wrench>-0 -0 0 0 -0 0</wrench>
+          <acceleration>1e-06 0 -0 -1e-06 1.6e-05 -1e-06</acceleration>
+          <wrench>0 0 -0 0 -0 0</wrench>
         </link>
         <link name='right_wheel_link'>
-          <pose>0.055313 -0.143638 0.066218 1.72361 1.57075 1.72361</pose>
+          <pose>0.055314 -0.143641 0.066218 1.72364 1.57075 1.72363</pose>
           <velocity>-5e-06 -0 0 4.9e-05 -0.000145 1e-06</velocity>
-          <acceleration>-0 -0 0 0 -1.5e-05 0</acceleration>
-          <wrench>-0 -0 0 0 -0 0</wrench>
+          <acceleration>1e-06 0 -0 -1e-06 1.5e-05 -1e-06</acceleration>
+          <wrench>0 0 -0 0 -0 0</wrench>
         </link>
       </model>
       <model name='marker_aruco_0_001'>
@@ -2547,20 +2547,20 @@
         </link>
       </model>
       <model name='marker_aruco_1_001'>
-        <pose>-1 6.5 0.3 0 -0 1.571</pose>
+        <pose>0 6.5 0.3 0 -0 1.571</pose>
         <scale>1 1 1</scale>
         <link name='marker_aruco_1::link'>
-          <pose>-1 6.5 0.3 0 -0 1.571</pose>
+          <pose>0 6.5 0.3 0 -0 1.571</pose>
           <velocity>0 0 0 0 -0 0</velocity>
           <acceleration>0 0 0 0 -0 0</acceleration>
           <wrench>0 0 0 0 -0 0</wrench>
         </link>
       </model>
       <model name='marker_aruco_2_001'>
-        <pose>-2.5 -7.75 0.3 0 0 -0.603732</pose>
+        <pose>-3.74722 -8.51815 0.402022 0 0 -0.603732</pose>
         <scale>1 1 1</scale>
         <link name='marker_aruco_2::link'>
-          <pose>-2.5 -7.75 0.3 0 0 -0.603732</pose>
+          <pose>-3.74722 -8.51815 0.402022 0 0 -0.603732</pose>
           <velocity>0 0 0 0 -0 0</velocity>
           <acceleration>0 0 0 0 -0 0</acceleration>
           <wrench>0 0 0 0 -0 0</wrench>
