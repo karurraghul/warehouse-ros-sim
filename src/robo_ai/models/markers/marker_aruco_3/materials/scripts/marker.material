@@ -1,0 +1,14 @@
+material Marker/marker_aruco_3
+{
+  technique
+  {
+    pass
+    {
+      lighting off
+      texture_unit
+      {
+        texture marker_aruco_3.png
+      }
+    }
+  }
+}

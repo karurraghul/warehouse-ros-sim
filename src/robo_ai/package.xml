@@ -32,4 +32,9 @@
   <!-- Used by state_publisher*.launch.py -->
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>joint_state_publisher</exec_depend>
+
+  <!-- Used by warehouse_nav.launch.py / warehouse_full.launch.py -->
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>robo_ai_vision</exec_depend>
+  <exec_depend>robo_ai_nav</exec_depend>
 </package>

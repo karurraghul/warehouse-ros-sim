@@ -217,6 +217,35 @@
         <pose frame=''>-0.276098 -9.481944 0.023266 0 0 0</pose>
 	</model>
 
+        <!-- ArUco marker plates on the right-hand aisle row (4 stops). -->
+        <model name="marker_aruco_0_001">
+        <include>
+            <uri>model://marker_aruco_0</uri>
+        </include>
+        <pose frame="">4.2 0.57943 0.3 0 0 0</pose>
+	</model>
+
+        <model name="marker_aruco_1_001">
+        <include>
+            <uri>model://marker_aruco_1</uri>
+        </include>
+        <pose frame="">4.2 -1.242668 0.3 0 0 0</pose>
+	</model>
+
+        <model name="marker_aruco_2_001">
+        <include>
+            <uri>model://marker_aruco_2</uri>
+        </include>
+        <pose frame="">4.2 -3.038551 0.3 0 0 0</pose>
+	</model>
+
+        <model name="marker_aruco_3_001">
+        <include>
+            <uri>model://marker_aruco_3</uri>
+        </include>
+        <pose frame="">4.2 -4.827049 0.3 0 0 0</pose>
+	</model>
+
     	
     <light name="Warehouse_CeilingLight_003" type="point">
       <pose frame="">0 0 9 0 0 0</pose>

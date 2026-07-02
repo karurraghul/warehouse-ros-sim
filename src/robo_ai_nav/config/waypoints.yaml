@@ -1,0 +1,27 @@
+# Map-frame waypoints for the delivery robot, one stop per ArUco marker plate
+# on the right-hand aisle row (see warehouse.world and generate_markers.py).
+#
+# x=2.5 keeps the robot in the aisle center, away from shelf costmap inflation.
+
+initial_pose:
+  x: 0.0
+  y: 0.0
+  yaw: 0.0
+
+waypoints:
+  - name: wp_marker_aruco_0
+    x: 2.5
+    y: 0.57943
+    yaw: 0.0
+  - name: wp_marker_aruco_1
+    x: 2.5
+    y: -1.242668
+    yaw: 0.0
+  - name: wp_marker_aruco_2
+    x: 2.5
+    y: -3.038551
+    yaw: 0.0
+  - name: wp_marker_aruco_3
+    x: 2.5
+    y: -4.827049
+    yaw: 0.0
