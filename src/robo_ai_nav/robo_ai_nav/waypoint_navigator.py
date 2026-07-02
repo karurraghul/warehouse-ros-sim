@@ -55,6 +55,62 @@ def load_waypoints_file(path):
     return data['initial_pose'], data['waypoints']
 
 
+def load_map_bounds(map_yaml_path, margin=0.35):
+    """Return map-frame x/y limits that keep the robot footprint inside the costmap."""
+    data = load_yaml_file(map_yaml_path)
+    origin_x, origin_y = float(data['origin'][0]), float(data['origin'][1])
+    resolution = float(data['resolution'])
+    image_path = os.path.join(os.path.dirname(map_yaml_path), data['image'])
+    with open(image_path, 'r') as image_file:
+        if image_file.readline().strip() != 'P5':
+            raise ValueError(f'Expected P5 PGM map at {image_path}')
+        width, height = map(int, image_file.readline().split())
+    return {
+        'x_min': origin_x + margin,
+        'x_max': origin_x + width * resolution - margin,
+        'y_min': origin_y + margin,
+        'y_max': origin_y + height * resolution - margin,
+    }
+
+
+def clamp_to_map(x, y, bounds):
+    return (
+        max(bounds['x_min'], min(bounds['x_max'], float(x))),
+        max(bounds['y_min'], min(bounds['y_max'], float(y))),
+    )
+
+
+def pose_inside_map(x, y, bounds):
+    return (
+        bounds['x_min'] <= float(x) <= bounds['x_max']
+        and bounds['y_min'] <= float(y) <= bounds['y_max']
+    )
+
+
+def validate_mission_poses(initial_pose, waypoints, bounds, logger):
+    """Fail fast if any configured pose is outside the static map / global costmap."""
+    ok = True
+
+    def check(label, x, y):
+        nonlocal ok
+        if not pose_inside_map(x, y, bounds):
+            logger.error(
+                f'{label} ({x}, {y}) is outside map bounds '
+                f'x=[{bounds["x_min"]:.2f}, {bounds["x_max"]:.2f}] '
+                f'y=[{bounds["y_min"]:.2f}, {bounds["y_max"]:.2f}]')
+            ok = False
+
+    check('initial_pose', initial_pose['x'], initial_pose['y'])
+    for wp in waypoints:
+        check(wp['name'], wp['x'], wp['y'])
+        for point in wp.get('through_poses', []):
+            check(f'{wp["name"]} through_pose', point['x'], point['y'])
+        retreat = wp.get('retreat_after_scan')
+        if retreat:
+            check(f'{wp["name"]} retreat', retreat['x'], retreat['y'])
+    return ok
+
+
 def parse_aruco_ids(marker_json):
     if not marker_json:
         return []
@@ -96,10 +152,11 @@ class NavProfileApplier:
         '/global_costmap/global_costmap',
     )
 
-    def __init__(self, node, profiles):
+    def __init__(self, node, profiles, map_bounds=None):
         self._node = node
         self._profiles = profiles
         self._clients = {}
+        self.map_bounds = map_bounds
 
     def _get_client(self, target_node):
         if target_node not in self._clients:
@@ -257,8 +314,15 @@ def build_pose_list(navigator, wp):
     return poses
 
 
-def relocalize_at_pose(navigator, x, y, yaw, label):
+def relocalize_at_pose(navigator, x, y, yaw, label, map_bounds=None):
     """Reseed AMCL at a known map pose (reduces sim drift between short legs)."""
+    if map_bounds is not None:
+        raw_x, raw_y = x, y
+        x, y = clamp_to_map(x, y, map_bounds)
+        if (x, y) != (raw_x, raw_y):
+            navigator.get_logger().warn(
+                f'Clamped relocalize pose for {label} from '
+                f'({raw_x:.2f}, {raw_y:.2f}) to ({x:.2f}, {y:.2f})')
     navigator.get_logger().info(
         f'Relocalizing AMCL after {label} at ({x:.2f}, {y:.2f}, yaw={yaw:.2f})')
     navigator.setInitialPose(make_pose_stamped(navigator, x, y, yaw))
@@ -334,7 +398,8 @@ def navigate_single_pose_with_reroute(navigator, pose, step_label):
 
 
 def navigate_sequential_poses(
-        navigator, poses, leg_label, retry_on_fail=False, relocalize_steps=True):
+        navigator, poses, leg_label, retry_on_fail=False, relocalize_steps=False,
+        map_bounds=None):
     """Force each pose in order — optional offset rerouting on failure."""
     for step, pose in enumerate(poses, start=1):
         step_label = f'{leg_label} [{step}/{len(poses)}]'
@@ -360,6 +425,7 @@ def navigate_sequential_poses(
                 pose.pose.position.y,
                 yaw_from_pose_stamped(pose),
                 step_label,
+                map_bounds,
             )
     return TaskResult.SUCCEEDED
 
@@ -386,7 +452,8 @@ def navigate_to_pose(navigator, wp, leg_label, profile_applier):
             return navigate_sequential_poses(
                 navigator, poses, leg_label,
                 retry_on_fail=wp.get('retry_on_fail', False),
-                relocalize_steps=wp.get('relocalize_steps', True))
+                relocalize_steps=wp.get('relocalize_steps', False),
+                map_bounds=profile_applier.map_bounds)
 
         navigator.get_logger().info(
             f'Navigating through {len(poses)} poses: {leg_label} '
@@ -420,7 +487,10 @@ def main(args=None):
     rclpy.init(args=args)
 
     navigator = BasicNavigator()
+    robo_ai_share = get_package_share_directory('robo_ai')
     pkg_share = get_package_share_directory('robo_ai_nav')
+    map_yaml = os.path.join(robo_ai_share, 'maps', 'warehouse_map.yaml')
+    map_bounds = load_map_bounds(map_yaml)
     navigator.declare_parameter(
         'waypoints_file',
         os.path.join(pkg_share, 'config', 'waypoints.yaml'))
@@ -439,7 +509,13 @@ def main(args=None):
 
     initial_pose_cfg, waypoints_cfg = load_waypoints_file(waypoints_file)
     nav_profiles = load_yaml_file(nav_profiles_file)
-    profile_applier = NavProfileApplier(navigator, nav_profiles)
+    if not validate_mission_poses(
+            initial_pose_cfg, waypoints_cfg, map_bounds, navigator.get_logger()):
+        navigator.get_logger().error(
+            'Mission aborted: one or more poses are outside the static map.')
+        rclpy.shutdown()
+        return
+    profile_applier = NavProfileApplier(navigator, nav_profiles, map_bounds)
 
     latest_markers = {}
     latest_amcl = {'pose': None}
@@ -504,7 +580,7 @@ def main(args=None):
 
         if wp.get('relocalize_after_scan'):
             relocalize_at_pose(
-                navigator, wp['x'], wp['y'], wp['yaw'], wp['name'])
+                navigator, wp['x'], wp['y'], wp['yaw'], wp['name'], map_bounds)
 
         retreat = wp.get('retreat_after_scan')
         if retreat:

@@ -1,5 +1,6 @@
 # Map-frame waypoints — short legs through center aisle, no retreats.
 #
+# Map bounds (warehouse_map.yaml): x=[-8.16, 7.49], y=[-13.0, 8.95]
 # WP0 scan -> one sequential block to marker 1 -> south -> marker 2 -> dock M3.
 
 initial_pose:
@@ -23,7 +24,7 @@ waypoints:
     nav_profile: tight
     force_sequential: true
     retry_on_fail: true
-    relocalize_steps: true
+    relocalize_steps: false
     pause_before_sec: 1.0
     through_poses:
       - {x: 0.35, y: 0.57943, yaw: 1.571}
@@ -52,6 +53,7 @@ waypoints:
     nav_profile: tight
     force_sequential: true
     retry_on_fail: true
+    relocalize_steps: false
     skip_scan: true
     through_poses:
       - {x: 0.35, y: -2.0, yaw: -1.571}
@@ -83,11 +85,12 @@ waypoints:
     retreat_nav_profile: narrow
     retreat_retry_on_fail: true
 
-  # y=-9.55 lane: skip x≈-1.2 (ClutteringD at -1.6,-7.8); jump -2.0 → -0.55 past clutter.
+  # y=-9.0 lane past clutter belt toward marker 3.
   - name: wp_dock_m2_to_m3
     nav_profile: narrow
     force_sequential: true
     retry_on_fail: true
+    relocalize_steps: false
     pause_before_sec: 1.0
     through_poses:
       - {x: -3.5, y: -9.0, yaw: 0.0}
