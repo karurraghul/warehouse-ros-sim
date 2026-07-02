@@ -214,13 +214,16 @@ class NavProfileApplier:
             'inflation_layer.inflation_radius': inflation,
             'inflation_layer.cost_scaling_factor': cost_scale,
         }
+        global_extra = {}
         if static_map_only:
-            costmap_params['obstacle_layer.enabled'] = False
+            global_extra['obstacle_layer.enabled'] = False
+        else:
+            global_extra['obstacle_layer.enabled'] = True
         ok = True
         for node_name in self.COSTMAP_NODES:
             node_params = dict(costmap_params)
-            if static_map_only and node_name.endswith('local_costmap'):
-                node_params.pop('obstacle_layer.enabled', None)
+            if node_name.endswith('global_costmap'):
+                node_params.update(global_extra)
             if local_static_only and node_name.endswith('local_costmap'):
                 node_params['voxel_layer.enabled'] = False
             ok = self._set_params(node_name, node_params) and ok
@@ -236,6 +239,9 @@ class NavProfileApplier:
     def restore_default(self):
         ok = self.apply('default', 'restore')
         return self._set_params(
+            '/global_costmap/global_costmap',
+            {'obstacle_layer.enabled': True},
+        ) and self._set_params(
             '/local_costmap/local_costmap',
             {'voxel_layer.enabled': True},
         ) and ok
@@ -302,6 +308,15 @@ def dwell_for_scan(navigator, dwell_sec, expected_id, latest_markers, early_exit
                 confirmed = True
                 break
     return confirmed
+
+
+def amcl_settle_dwell(navigator, seconds, label):
+    """Hold still and process lidar so AMCL can scan-match before the next leg."""
+    navigator.get_logger().info(
+        f'AMCL settle dwell {seconds:.1f}s after {label}')
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        rclpy.spin_once(navigator, timeout_sec=0.1)
 
 
 def build_pose_list(navigator, wp):
@@ -557,6 +572,10 @@ def main(args=None):
         if leg_result != TaskResult.SUCCEEDED:
             overall_result = leg_result
             break
+
+        dwell_after = float(wp.get('dwell_after_sec', 0.0))
+        if dwell_after > 0.0:
+            amcl_settle_dwell(navigator, dwell_after, wp['name'])
 
         if wp.get('skip_scan'):
             navigator.get_logger().info(

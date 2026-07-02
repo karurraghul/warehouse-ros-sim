@@ -14,7 +14,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -43,6 +43,9 @@ def generate_launch_description():
             os.path.join(robo_ai_share, 'launch', 'warehouse_nav.launch.py')),
     )
 
+    # Nav2 needs map->odom from AMCL; robot and /scan must exist first.
+    nav2_launch_delayed = TimerAction(period=6.0, actions=[nav2_launch])
+
     ekf_node = Node(
         package='robot_localization',
         executable='ekf_node',
@@ -53,6 +56,19 @@ def generate_launch_description():
             {'use_sim_time': use_sim_time},
         ],
     )
+    ekf_node_delayed = TimerAction(period=6.0, actions=[ekf_node])
+
+    initial_pose_node = Node(
+        package='robo_ai_nav',
+        executable='initial_pose_publisher',
+        name='initial_pose_publisher',
+        output='screen',
+        parameters=[{
+            'waypoints_file': waypoints_file,
+            'use_sim_time': use_sim_time,
+        }],
+    )
+    initial_pose_delayed = TimerAction(period=7.0, actions=[initial_pose_node])
 
     marker_detector_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -75,6 +91,10 @@ def generate_launch_description():
             'scan_dwell_sec': 2.0,
         }],
     )
+    waypoint_navigator_delayed = TimerAction(
+        period=9.0,
+        actions=[waypoint_navigator_node],
+    )
 
     rviz_node = Node(
         package='rviz2',
@@ -85,6 +105,8 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_sim_time}],
         condition=IfCondition(use_rviz),
     )
+    # After initial_pose (7s) + AMCL map->odom; avoids LaserScan TF cache drops.
+    rviz_delayed = TimerAction(period=10.0, actions=[rviz_node])
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -107,9 +129,10 @@ def generate_launch_description():
             description='Launch RViz2 with warehouse Nav2 visualization.'),
 
         sim_launch,
-        ekf_node,
-        nav2_launch,
+        ekf_node_delayed,
+        nav2_launch_delayed,
+        initial_pose_delayed,
         marker_detector_launch,
-        waypoint_navigator_node,
-        rviz_node,
+        waypoint_navigator_delayed,
+        rviz_delayed,
     ])

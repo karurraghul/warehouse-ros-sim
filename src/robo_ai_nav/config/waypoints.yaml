@@ -47,18 +47,22 @@ waypoints:
     yaw: -1.571
     skip_scan: true
     nav_profile: tight
+    dwell_after_sec: 3.0
 
-  # One forced sequential block: south on x=0.35 then peel west (reroute on any step).
+  # South on x=0.35, rotate in place, then straight west (no diagonal through-pose).
   - name: wp_transit_south_to_west
     nav_profile: tight
     force_sequential: true
     retry_on_fail: true
     relocalize_steps: false
     skip_scan: true
+    pause_before_sec: 1.0
     through_poses:
       - {x: 0.35, y: -2.0, yaw: -1.571}
       - {x: 0.35, y: -3.0, yaw: -1.571}
       - {x: 0.35, y: -4.0, yaw: -1.571}
+      - {x: 0.35, y: -5.0, yaw: -1.571}
+      - {x: 0.35, y: -5.0, yaw: 0.0}
       - {x: -2.0, y: -5.0, yaw: 0.0}
     x: -3.8
     y: -8.0

@@ -6,16 +6,14 @@ default:
   cost_scaling_factor: 3.0
   base_obstacle_scale: 0.08
   xy_goal_tolerance: 0.35
-  static_map_only: true
 
 tight:
   inflation_radius: 0.28
   cost_scaling_factor: 5.0
   base_obstacle_scale: 0.06
   xy_goal_tolerance: 0.25
-  static_map_only: true
 
-# Dock clutter belt — static global map; keep local lidar for live avoidance.
+# Dock clutter belt — static global map only; keep local lidar for live avoidance.
 narrow:
   inflation_radius: 0.18
   cost_scaling_factor: 7.0
