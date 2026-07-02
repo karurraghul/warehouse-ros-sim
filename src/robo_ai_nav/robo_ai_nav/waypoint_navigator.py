@@ -269,6 +269,23 @@ def relocalize_at_pose(navigator, x, y, yaw, label):
     time.sleep(0.5)
 
 
+def force_relocalize_via_spin(navigator, label, spin_dist=1.57, time_allowance=10):
+    """Spin in place so AMCL gets fresh lidar before the next leg."""
+    navigator.get_logger().info(
+        f'Forcing relocalization via spin after {label} '
+        f'(target_yaw={spin_dist:.2f} rad)...')
+    if not navigator.spin(spin_dist=spin_dist, time_allowance=time_allowance):
+        navigator.get_logger().warn(f'Spin rejected after {label}; continuing')
+        return
+    while not navigator.isTaskComplete():
+        rclpy.spin_once(navigator, timeout_sec=0.5)
+    result = navigator.getResult()
+    if result != TaskResult.SUCCEEDED:
+        navigator.get_logger().warn(
+            f'Spin after {label} finished with {result}; continuing')
+    time.sleep(1.0)
+
+
 def yaw_from_pose_stamped(pose):
     return yaw_from_quaternion(pose.pose.orientation)
 
@@ -478,12 +495,24 @@ def main(args=None):
             log_waypoint_scan(
                 navigator, wp, latest_markers.get('data'), latest_amcl['pose'])
 
+            spin_relocalize = wp.get(
+                'spin_relocalize_after_scan',
+                expected is not None,
+            )
+            if spin_relocalize:
+                force_relocalize_via_spin(navigator, wp['name'])
+
         if wp.get('relocalize_after_scan'):
             relocalize_at_pose(
                 navigator, wp['x'], wp['y'], wp['yaw'], wp['name'])
 
         retreat = wp.get('retreat_after_scan')
         if retreat:
+            if wp.get('clear_costmap_before_retreat'):
+                navigator.get_logger().info(
+                    f'Clearing costmaps before retreat from {wp["name"]}')
+                navigator.clearAllCostmaps()
+                time.sleep(0.5)
             latest_markers.pop('data', None)
             retreat_wp = {
                 'x': retreat['x'],

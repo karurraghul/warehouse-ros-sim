@@ -32,6 +32,8 @@ waypoints:
     y: 4.0
     yaw: 1.571
     expected_aruco_id: 1
+    relocalize_after_scan: true
+    spin_relocalize_after_scan: true
     marker_pose:
       x: 0.0
       y: 6.5
@@ -66,6 +68,9 @@ waypoints:
     yaw: 0.0
     expected_aruco_id: 2
     nav_profile: default
+    relocalize_after_scan: true
+    spin_relocalize_after_scan: true
+    clear_costmap_before_retreat: true
     marker_pose:
       x: -3.74722
       y: -8.51815
@@ -93,6 +98,8 @@ waypoints:
     y: -9.55
     yaw: -1.571
     expected_aruco_id: 3
+    relocalize_after_scan: true
+    spin_relocalize_after_scan: true
     marker_pose:
       x: 0.5
       y: -9.0
