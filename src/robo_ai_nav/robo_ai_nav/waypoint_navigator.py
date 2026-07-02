@@ -71,10 +71,21 @@ def load_map_bounds(map_yaml_path, margin=0.35):
     origin_x, origin_y = float(data['origin'][0]), float(data['origin'][1])
     resolution = float(data['resolution'])
     image_path = os.path.join(os.path.dirname(map_yaml_path), data['image'])
-    with open(image_path, 'r') as image_file:
-        if image_file.readline().strip() != 'P5':
-            raise ValueError(f'Expected P5 PGM map at {image_path}')
-        width, height = map(int, image_file.readline().split())
+    with open(image_path, 'rb') as image_file:
+        magic = image_file.readline().strip()
+        if magic != b'P5':
+            raise ValueError(f'Expected P5 PGM map at {image_path}, got {magic!r}')
+
+        line = image_file.readline()
+        while line.startswith(b'#'):
+            line = image_file.readline()
+        width, height = (int(value) for value in line.split())
+
+        maxval_line = image_file.readline()
+        while maxval_line.startswith(b'#'):
+            maxval_line = image_file.readline()
+        int(maxval_line.strip())
+
     return {
         'x_min': origin_x + margin,
         'x_max': origin_x + width * resolution - margin,
