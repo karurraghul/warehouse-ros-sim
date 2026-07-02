@@ -6,6 +6,13 @@ Not installed or run at simulation time - run manually whenever the marker
 set needs to change:
 
     python3 src/robo_ai/scripts/generate_markers.py
+
+Shelf-relative placement (marker_aruco_0 in warehouse.world):
+  SHELF_ROW_X = 4.73156          # ShelfE/D row origin in map frame
+  SHELF_AISLE_FACE_X ≈ 4.05      # Mount marker on aisle-facing shelf front
+  MARKER_STANDOFF_FROM_FACE = 0.05 m  # Slightly proud into aisle for visibility
+  Robot stop (WP0) at x=2.0 faces shelf for scan; retreat_after_scan backs to x=0.
+  Do not place markers inside shelf collision mesh (x > ~4.0 toward row center).
 """
 import os
 
@@ -72,14 +79,8 @@ MODEL_SDF_TEMPLATE = """<?xml version='1.0'?>
             <name>{material_name}</name>
           </script>
         </material>
+        <transparency>0.35</transparency>
       </visual>
-      <collision name='collision'>
-        <geometry>
-          <box>
-            <size>{thickness} {size} {size}</size>
-          </box>
-        </geometry>
-      </collision>
     </link>
   </model>
 </sdf>

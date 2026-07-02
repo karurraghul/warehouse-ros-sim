@@ -13,6 +13,7 @@ OpenCV's built-in `cv2.QRCodeDetector`. Note that the stock Ubuntu 22.04
 `pyzbar` is the more reliable option if QR detection is important to you.
 """
 import json
+import math
 
 import cv2
 import rclpy
@@ -28,6 +29,21 @@ except ImportError:
     _HAVE_PYZBAR = False
 
 
+def _marker_pixel_size(corners):
+    """Average edge length of the marker quad in pixels."""
+    pts = corners.reshape(-1, 2)
+    edges = [
+        math.hypot(pts[i][0] - pts[(i + 1) % 4][0], pts[i][1] - pts[(i + 1) % 4][1])
+        for i in range(4)
+    ]
+    return sum(edges) / len(edges)
+
+
+def _marker_center(corners):
+    pts = corners.reshape(-1, 2)
+    return float(pts[:, 0].mean()), float(pts[:, 1].mean())
+
+
 class MarkerDetectorNode(Node):
 
     def __init__(self):
@@ -38,12 +54,15 @@ class MarkerDetectorNode(Node):
         self.declare_parameter('annotated_topic', '/marker_detector/image_annotated')
         self.declare_parameter('aruco_dictionary', 'DICT_4X4_50')
         self.declare_parameter('publish_annotated', True)
+        self.declare_parameter('no_marker_log_interval_sec', 5.0)
 
         camera_topic = self.get_parameter('camera_topic').value
         detections_topic = self.get_parameter('detections_topic').value
         annotated_topic = self.get_parameter('annotated_topic').value
         dict_name = self.get_parameter('aruco_dictionary').value
         self._publish_annotated = self.get_parameter('publish_annotated').value
+        self._no_marker_log_interval = self.get_parameter(
+            'no_marker_log_interval_sec').value
 
         self._bridge = CvBridge()
         self._aruco_dict = cv2.aruco.Dictionary_get(getattr(cv2.aruco, dict_name))
@@ -60,6 +79,11 @@ class MarkerDetectorNode(Node):
             Image, camera_topic, self._on_image, 10)
 
         self._warned_no_pyzbar = False
+        self._logged_first_frame = False
+        self._frame_count = 0
+        self._last_no_marker_log = self.get_clock().now()
+        self._image_width = 0
+        self._image_height = 0
 
         self.get_logger().info(
             f'Subscribing to camera topic "{camera_topic}". '
@@ -72,7 +96,28 @@ class MarkerDetectorNode(Node):
                 'was built without the QUIRC library. '
                 'Install with: sudo apt install python3-pyzbar libzbar0')
 
+    def _log_no_markers_throttled(self):
+        now = self.get_clock().now()
+        elapsed = (now - self._last_no_marker_log).nanoseconds / 1e9
+        if elapsed < self._no_marker_log_interval:
+            return
+        self._last_no_marker_log = now
+        self.get_logger().info(
+            f'No markers in frame ({self._image_width}x{self._image_height}, '
+            f'frame #{self._frame_count}). Check robot distance/orientation '
+            f'or view /marker_detector/image_annotated in RViz.')
+
     def _on_image(self, msg: Image):
+        self._frame_count += 1
+        self._image_width = msg.width
+        self._image_height = msg.height
+
+        if not self._logged_first_frame:
+            self._logged_first_frame = True
+            self.get_logger().info(
+                f'First camera frame: {msg.width}x{msg.height}, '
+                f'frame_id="{msg.header.frame_id}"')
+
         frame = self._bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
@@ -84,16 +129,24 @@ class MarkerDetectorNode(Node):
         if ids is not None:
             for marker_corners, marker_id in zip(corners, ids.flatten()):
                 pts = marker_corners.reshape(-1, 2).tolist()
+                px_size = _marker_pixel_size(marker_corners)
+                cx, cy = _marker_center(marker_corners)
                 detections.append({
                     'type': 'aruco',
                     'id': int(marker_id),
                     'corners': pts,
+                    'pixel_size': round(px_size, 1),
+                    'center_px': [round(cx, 1), round(cy, 1)],
                 })
+                self.get_logger().info(
+                    f'Detected ArUco id={int(marker_id)}, '
+                    f'size≈{px_size:.0f}px, center=({cx:.0f},{cy:.0f})')
             if annotated is not None:
                 cv2.aruco.drawDetectedMarkers(annotated, corners, ids)
 
         for text, points in self._detect_qr_codes(gray):
             detections.append({'type': 'qr', 'text': text, 'corners': points})
+            self.get_logger().info(f'Detected QR code: "{text}"')
             if annotated is not None and points:
                 pts_arr = [(int(x), int(y)) for x, y in points]
                 for i in range(len(pts_arr)):
@@ -103,6 +156,7 @@ class MarkerDetectorNode(Node):
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         if detections:
+            aruco_ids = [d['id'] for d in detections if d['type'] == 'aruco']
             out = String()
             out.data = json.dumps({
                 'stamp_sec': msg.header.stamp.sec,
@@ -110,6 +164,11 @@ class MarkerDetectorNode(Node):
                 'detections': detections,
             })
             self._detections_pub.publish(out)
+            self.get_logger().info(
+                f'Published {len(detections)} detection(s) on '
+                f'/detected_markers (ArUco ids={aruco_ids})')
+        else:
+            self._log_no_markers_throttled()
 
         if annotated is not None:
             out_msg = self._bridge.cv2_to_imgmsg(annotated, encoding='bgr8')

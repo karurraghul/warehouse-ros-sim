@@ -217,33 +217,33 @@
         <pose frame=''>-0.276098 -9.481944 0.023266 0 0 0</pose>
 	</model>
 
-        <!-- ArUco marker plates on the right-hand aisle row (4 stops). -->
+        <!-- ArUco marker plates: one shelf-row plate plus three open-floor stops. -->
         <model name="marker_aruco_0_001">
         <include>
             <uri>model://marker_aruco_0</uri>
         </include>
-        <pose frame="">4.2 0.57943 0.3 0 0 0</pose>
+        <pose frame="">4.05 0.57943 0.3 0 0 0</pose>
 	</model>
 
         <model name="marker_aruco_1_001">
         <include>
             <uri>model://marker_aruco_1</uri>
         </include>
-        <pose frame="">4.2 -1.242668 0.3 0 0 0</pose>
+        <pose frame="">-1.0 6.5 0.3 0 0 1.571</pose>
 	</model>
 
         <model name="marker_aruco_2_001">
         <include>
             <uri>model://marker_aruco_2</uri>
         </include>
-        <pose frame="">4.2 -3.038551 0.3 0 0 0</pose>
+        <pose frame="">-1.6 -7.5 0.3 0 0 0</pose>
 	</model>
 
         <model name="marker_aruco_3_001">
         <include>
             <uri>model://marker_aruco_3</uri>
         </include>
-        <pose frame="">4.2 -4.827049 0.3 0 0 0</pose>
+        <pose frame="">0.5 -9.0 0.3 0 0 1.571</pose>
 	</model>
 
     	

@@ -16,14 +16,8 @@
             <name>Marker/marker_aruco_3</name>
           </script>
         </material>
+        <transparency>0.35</transparency>
       </visual>
-      <collision name='collision'>
-        <geometry>
-          <box>
-            <size>0.02 0.15 0.15</size>
-          </box>
-        </geometry>
-      </collision>
     </link>
   </model>
 </sdf>

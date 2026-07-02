@@ -1,0 +1,11 @@
+# Nav2 parameter overrides applied per waypoint leg by waypoint_navigator.
+# default: safe open-aisle navigation (used for shelf stop WP0).
+# tight: reduced inflation for narrow aisles — use sparingly on specific legs.
+
+default:
+  inflation_radius: 0.45
+  xy_goal_tolerance: 0.35
+
+tight:
+  inflation_radius: 0.28
+  xy_goal_tolerance: 0.25

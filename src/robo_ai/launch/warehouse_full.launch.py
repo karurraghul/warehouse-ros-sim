@@ -30,6 +30,7 @@ def generate_launch_description():
     camera_topic = LaunchConfiguration('camera_topic')
     run_waypoint_navigator = LaunchConfiguration('run_waypoint_navigator')
     waypoints_file = LaunchConfiguration('waypoints_file')
+    use_rviz = LaunchConfiguration('use_rviz')
 
     sim_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -57,6 +58,16 @@ def generate_launch_description():
         parameters=[{'waypoints_file': waypoints_file, 'use_sim_time': use_sim_time}],
     )
 
+    rviz_node = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        output='screen',
+        arguments=['-d', os.path.join(robo_ai_share, 'config', 'warehouse_nav.rviz')],
+        parameters=[{'use_sim_time': use_sim_time}],
+        condition=IfCondition(use_rviz),
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument(
             name='use_sim_time', default_value='True',
@@ -73,9 +84,13 @@ def generate_launch_description():
             name='waypoints_file',
             default_value=os.path.join(robo_ai_nav_share, 'config', 'waypoints.yaml'),
             description='Path to the waypoints YAML file.'),
+        DeclareLaunchArgument(
+            name='use_rviz', default_value='true',
+            description='Launch RViz2 with warehouse Nav2 visualization.'),
 
         sim_launch,
         nav2_launch,
         marker_detector_launch,
         waypoint_navigator_node,
+        rviz_node,
     ])
