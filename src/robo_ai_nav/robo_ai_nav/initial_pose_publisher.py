@@ -45,12 +45,6 @@ def main(args=None):
         os.path.join(pkg_share, 'config', 'waypoints.yaml'))
     node.declare_parameter('publish_period_sec', 1.0)
     node.declare_parameter('max_attempts', 30)
-    node.declare_parameter('use_sim_time', True)
-
-    use_sim_time = node.get_parameter('use_sim_time').value
-    if use_sim_time:
-        from rclpy.parameter import Parameter
-        node.set_parameters([Parameter('use_sim_time', Parameter.Type.BOOL, True)])
 
     waypoints_file = node.get_parameter('waypoints_file').value
     period = node.get_parameter('publish_period_sec').value
