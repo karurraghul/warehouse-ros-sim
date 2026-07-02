@@ -3,8 +3,8 @@ Nav2's `nav2_simple_commander` (`BasicNavigator.goToPose` per leg).
 
 Waypoints and the assumed initial pose are loaded from a YAML file (default:
 `config/waypoints.yaml` in this package). Optional per-waypoint `nav_profile`
-switches costmap inflation before each leg. While parked at each waypoint it
-listens to `/detected_markers` and logs scan results.
+switches costmap inflation before each leg. While parked at each waypoint it listens to `/detected_markers`, exits the
+dwell early when the expected marker is seen, and logs one SCAN OK/MISS line.
 
 Shelf-row stops may define `retreat_after_scan` to back the robot out of a
 tight aisle before continuing to the next waypoint.
@@ -172,35 +172,49 @@ def log_waypoint_scan(navigator, wp_cfg, marker_json, amcl_pose):
     expected = wp_cfg.get('expected_aruco_id')
     seen = parse_aruco_ids(marker_json)
 
-    if amcl_pose is not None:
-        p = amcl_pose.pose.pose.position
-        yaw = yaw_from_quaternion(amcl_pose.pose.pose.orientation)
-        navigator.get_logger().info(
-            f'AMCL pose at {name}: x={p.x:.2f}, y={p.y:.2f}, yaw={yaw:.2f} rad')
-
     if expected is not None:
         if expected in seen:
             navigator.get_logger().info(
                 f'SCAN OK at {name}: expected ArUco id={expected}, '
                 f'saw ids={seen}')
         else:
+            pose_hint = ''
+            if amcl_pose is not None:
+                p = amcl_pose.pose.pose.position
+                yaw = yaw_from_quaternion(amcl_pose.pose.pose.orientation)
+                pose_hint = (
+                    f' AMCL pose: x={p.x:.2f}, y={p.y:.2f}, yaw={yaw:.2f} rad.')
             navigator.get_logger().warn(
                 f'SCAN MISS at {name}: expected ArUco id={expected}, '
-                f'saw ids={seen or "none"}. Move closer or fix marker yaw.')
+                f'saw ids={seen or "none"}.{pose_hint} '
+                f'Move closer or fix marker yaw.')
     elif seen:
-        navigator.get_logger().info(f'At {name}: saw ArUco ids={seen}')
+        navigator.get_logger().info(f'SCAN OK at {name}: saw ArUco ids={seen}')
     else:
-        navigator.get_logger().warn(f'At {name}: no ArUco markers detected.')
+        pose_hint = ''
+        if amcl_pose is not None:
+            p = amcl_pose.pose.pose.position
+            yaw = yaw_from_quaternion(amcl_pose.pose.pose.orientation)
+            pose_hint = (
+                f' AMCL pose: x={p.x:.2f}, y={p.y:.2f}, yaw={yaw:.2f} rad.')
+        navigator.get_logger().warn(
+            f'SCAN MISS at {name}: no ArUco markers detected.{pose_hint}')
 
 
-def dwell_for_scan(navigator, dwell_sec):
-    """Hold at goal briefly so the camera can publish detections."""
+def dwell_for_scan(navigator, dwell_sec, expected_id, latest_markers, early_exit=True):
     deadline = time.monotonic() + dwell_sec
+    confirmed = False
     while time.monotonic() < deadline:
         rclpy.spin_once(navigator, timeout_sec=0.1)
+        if early_exit and expected_id is not None:
+            seen = parse_aruco_ids(latest_markers.get('data', ''))
+            if expected_id in seen:
+                confirmed = True
+                break
+    return confirmed
 
 
-def navigate_to_pose(navigator, wp, leg_label, profile_applier, latest_markers):
+def navigate_to_pose(navigator, wp, leg_label, profile_applier):
     if not validate_goal_clearance(navigator, wp, leg_label):
         return TaskResult.FAILED
 
@@ -215,19 +229,6 @@ def navigate_to_pose(navigator, wp, leg_label, profile_applier, latest_markers):
 
     while not navigator.isTaskComplete():
         rclpy.spin_once(navigator, timeout_sec=0.5)
-        if 'data' in latest_markers:
-            seen = parse_aruco_ids(latest_markers['data'])
-            if seen:
-                expected = wp.get('expected_aruco_id')
-                if expected is not None:
-                    if expected in seen:
-                        navigator.get_logger().info(
-                            f'Live detection while navigating to {leg_label}: '
-                            f'expected ArUco id={expected} seen')
-                elif not wp.get('skip_scan'):
-                    navigator.get_logger().info(
-                        f'Live detection while navigating to {leg_label}: '
-                        f'ArUco ids={seen}')
 
     leg_result = navigator.getResult()
     if leg_result != TaskResult.SUCCEEDED:
@@ -251,7 +252,7 @@ def main(args=None):
         os.path.join(pkg_share, 'config', 'nav_profiles.yaml'))
     navigator.declare_parameter('shutdown_nav2_on_exit', True)
     navigator.declare_parameter('shutdown_nav2_on_failure', False)
-    navigator.declare_parameter('scan_dwell_sec', 6.0)
+    navigator.declare_parameter('scan_dwell_sec', 2.0)
 
     waypoints_file = navigator.get_parameter('waypoints_file').value
     nav_profiles_file = navigator.get_parameter('nav_profiles_file').value
@@ -296,18 +297,23 @@ def main(args=None):
     overall_result = TaskResult.SUCCEEDED
 
     for index, wp in enumerate(waypoints_cfg):
+        latest_markers.pop('data', None)
         leg_label = f'waypoint {index + 1}/{len(waypoints_cfg)}: {wp["name"]}'
-        leg_result = navigate_to_pose(
-            navigator, wp, leg_label, profile_applier, latest_markers)
+        leg_result = navigate_to_pose(navigator, wp, leg_label, profile_applier)
         if leg_result != TaskResult.SUCCEEDED:
             overall_result = leg_result
             break
 
-        dwell_for_scan(navigator, scan_dwell_sec)
-        log_waypoint_scan(navigator, wp, latest_markers.get('data'), latest_amcl['pose'])
+        if not wp.get('skip_scan'):
+            expected = wp.get('expected_aruco_id')
+            dwell_for_scan(
+                navigator, scan_dwell_sec, expected, latest_markers)
+            log_waypoint_scan(
+                navigator, wp, latest_markers.get('data'), latest_amcl['pose'])
 
         retreat = wp.get('retreat_after_scan')
         if retreat:
+            latest_markers.pop('data', None)
             retreat_wp = {
                 'x': retreat['x'],
                 'y': retreat['y'],
@@ -319,7 +325,7 @@ def main(args=None):
                 f'Backing out of aisle before next waypoint -> '
                 f'({retreat_wp["x"]}, {retreat_wp["y"]}, yaw={retreat_wp["yaw"]})')
             retreat_result = navigate_to_pose(
-                navigator, retreat_wp, retreat_label, profile_applier, latest_markers)
+                navigator, retreat_wp, retreat_label, profile_applier)
             if retreat_result != TaskResult.SUCCEEDED:
                 overall_result = retreat_result
                 navigator.get_logger().error(

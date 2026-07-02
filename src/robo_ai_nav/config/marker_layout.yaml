@@ -16,7 +16,7 @@ markers:
     y: 6.5
     z: 0.3
     yaw: 1.571
-    notes: North open floor (away from ClutteringA)
+    notes: North center aisle; scan stop at (0, 3.5), marker at (0, 6.5)
 
   - name: marker_aruco_2
     aruco_id: 2

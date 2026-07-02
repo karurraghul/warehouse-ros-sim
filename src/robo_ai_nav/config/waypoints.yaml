@@ -1,9 +1,6 @@
-# Map-frame waypoints — marker stops plus transit legs through open floor.
+# Map-frame waypoints — short legs through center aisle, no retreats.
 #
-# Shelf: aruco_0 at (4.05, 0.58); WP0 at (2.0, 0.58) with retreat after scan.
-# North: aruco_1 at (0.0, 6.5) — tight nav profile for clutter pocket.
-# South: aruco_2 at (-2.0, -7.5), yaw≈-0.6 (slightly rotated in Gazebo).
-# Transit wp_transit_south avoids diagonal cut through clutter after WP1.
+# WP0 shelf scan -> west along row -> north -> WP1 -> stepped south -> south markers.
 
 initial_pose:
   x: 0.0
@@ -19,14 +16,24 @@ waypoints:
     shelf_row_stop: true
     min_clear_x: 2.5
     nav_profile: default
-    retreat_after_scan:
-      x: 0.0
-      y: 0.57943
-      yaw: 3.14159
+
+  - name: wp_transit_west
+    x: 0.0
+    y: 0.57943
+    yaw: 1.571
+    skip_scan: true
+    nav_profile: default
+
+  - name: wp_transit_north
+    x: 0.0
+    y: 2.0
+    yaw: 1.571
+    skip_scan: true
+    nav_profile: default
 
   - name: wp_marker_aruco_1
     x: 0.0
-    y: 5.0
+    y: 3.5
     yaw: 1.571
     expected_aruco_id: 1
     nav_profile: default
@@ -36,6 +43,13 @@ waypoints:
       z: 0.3
       yaw: 1.571
 
+  - name: wp_transit_south_mid
+    x: 0.0
+    y: 1.0
+    yaw: -1.571
+    skip_scan: true
+    nav_profile: default
+
   - name: wp_transit_south
     x: 0.0
     y: -2.0
@@ -43,8 +57,15 @@ waypoints:
     skip_scan: true
     nav_profile: default
 
+  - name: wp_transit_west_south
+    x: -2.5
+    y: -7.5
+    yaw: 0.0
+    skip_scan: true
+    nav_profile: default
+
   - name: wp_marker_aruco_2
-    x: -4.65          # -3.74722 - 0.9
+    x: -4.2
     y: -8.51815
     yaw: 0.0
     expected_aruco_id: 2

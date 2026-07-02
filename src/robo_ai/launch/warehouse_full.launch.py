@@ -46,7 +46,10 @@ def generate_launch_description():
     marker_detector_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(robo_ai_vision_share, 'launch', 'marker_detector.launch.py')),
-        launch_arguments={'camera_topic': camera_topic}.items(),
+        launch_arguments={
+            'camera_topic': camera_topic,
+            'no_marker_log_interval_sec': '30.0',
+        }.items(),
     )
 
     waypoint_navigator_node = Node(
@@ -55,7 +58,11 @@ def generate_launch_description():
         name='waypoint_navigator',
         output='screen',
         condition=IfCondition(run_waypoint_navigator),
-        parameters=[{'waypoints_file': waypoints_file, 'use_sim_time': use_sim_time}],
+        parameters=[{
+            'waypoints_file': waypoints_file,
+            'use_sim_time': use_sim_time,
+            'scan_dwell_sec': 2.0,
+        }],
     )
 
     rviz_node = Node(

@@ -54,7 +54,7 @@ class MarkerDetectorNode(Node):
         self.declare_parameter('annotated_topic', '/marker_detector/image_annotated')
         self.declare_parameter('aruco_dictionary', 'DICT_4X4_50')
         self.declare_parameter('publish_annotated', True)
-        self.declare_parameter('no_marker_log_interval_sec', 5.0)
+        self.declare_parameter('no_marker_log_interval_sec', 30.0)
 
         camera_topic = self.get_parameter('camera_topic').value
         detections_topic = self.get_parameter('detections_topic').value
@@ -82,6 +82,7 @@ class MarkerDetectorNode(Node):
         self._logged_first_frame = False
         self._frame_count = 0
         self._last_no_marker_log = self.get_clock().now()
+        self._last_logged_aruco_ids = None
         self._image_width = 0
         self._image_height = 0
 
@@ -102,7 +103,7 @@ class MarkerDetectorNode(Node):
         if elapsed < self._no_marker_log_interval:
             return
         self._last_no_marker_log = now
-        self.get_logger().info(
+        self.get_logger().debug(
             f'No markers in frame ({self._image_width}x{self._image_height}, '
             f'frame #{self._frame_count}). Check robot distance/orientation '
             f'or view /marker_detector/image_annotated in RViz.')
@@ -138,7 +139,7 @@ class MarkerDetectorNode(Node):
                     'pixel_size': round(px_size, 1),
                     'center_px': [round(cx, 1), round(cy, 1)],
                 })
-                self.get_logger().info(
+                self.get_logger().debug(
                     f'Detected ArUco id={int(marker_id)}, '
                     f'size≈{px_size:.0f}px, center=({cx:.0f},{cy:.0f})')
             if annotated is not None:
@@ -146,7 +147,7 @@ class MarkerDetectorNode(Node):
 
         for text, points in self._detect_qr_codes(gray):
             detections.append({'type': 'qr', 'text': text, 'corners': points})
-            self.get_logger().info(f'Detected QR code: "{text}"')
+            self.get_logger().debug(f'Detected QR code: "{text}"')
             if annotated is not None and points:
                 pts_arr = [(int(x), int(y)) for x, y in points]
                 for i in range(len(pts_arr)):
@@ -156,7 +157,17 @@ class MarkerDetectorNode(Node):
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         if detections:
-            aruco_ids = [d['id'] for d in detections if d['type'] == 'aruco']
+            aruco_ids = sorted(
+                d['id'] for d in detections if d['type'] == 'aruco')
+            aruco_id_set = frozenset(aruco_ids)
+            if aruco_id_set != self._last_logged_aruco_ids:
+                self._last_logged_aruco_ids = aruco_id_set
+                if aruco_ids:
+                    self.get_logger().info(
+                        f'ArUco marker(s) visible: ids={aruco_ids}')
+                qr_texts = [d['text'] for d in detections if d['type'] == 'qr']
+                for text in qr_texts:
+                    self.get_logger().info(f'QR code visible: "{text}"')
             out = String()
             out.data = json.dumps({
                 'stamp_sec': msg.header.stamp.sec,
@@ -164,10 +175,12 @@ class MarkerDetectorNode(Node):
                 'detections': detections,
             })
             self._detections_pub.publish(out)
-            self.get_logger().info(
+            self.get_logger().debug(
                 f'Published {len(detections)} detection(s) on '
                 f'/detected_markers (ArUco ids={aruco_ids})')
         else:
+            if self._last_logged_aruco_ids:
+                self._last_logged_aruco_ids = frozenset()
             self._log_no_markers_throttled()
 
         if annotated is not None:

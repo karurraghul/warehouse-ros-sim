@@ -24,6 +24,10 @@ def generate_launch_description():
             executable='waypoint_navigator',
             name='waypoint_navigator',
             output='screen',
-            parameters=[{'waypoints_file': waypoints_file, 'use_sim_time': True}],
+            parameters=[{
+                'waypoints_file': waypoints_file,
+                'use_sim_time': True,
+                'scan_dwell_sec': 2.0,
+            }],
         ),
     ])
