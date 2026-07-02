@@ -7,6 +7,9 @@
 #
 # Open-floor markers use ~0.9 m standoff. Set nav_profile: tight only when a leg
 # must enter a narrow aisle; WP0 uses default (safe aisle).
+#
+# Marker poses (see also config/marker_layout.yaml):
+#   aruco_2 marker at (-2.5, -7.75) — west of ClutteringD, opposite aruco_3
 
 initial_pose:
   x: 0.0
@@ -33,11 +36,16 @@ waypoints:
     expected_aruco_id: 1
     nav_profile: default
   - name: wp_marker_aruco_2
-    x: -2.5
-    y: -7.5
+    x: -3.4
+    y: -7.75
     yaw: 0.0
     expected_aruco_id: 2
     nav_profile: default
+    marker_pose:
+      x: -2.5
+      y: -7.75
+      z: 0.3
+      yaw: 0.0
   - name: wp_marker_aruco_3
     x: 0.5
     y: -8.1

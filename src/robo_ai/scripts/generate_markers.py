@@ -13,6 +13,7 @@ Shelf-relative placement (marker_aruco_0 in warehouse.world):
   MARKER_STANDOFF_FROM_FACE = 0.05 m  # Slightly proud into aisle for visibility
   Robot stop (WP0) at x=2.0 faces shelf for scan; retreat_after_scan backs to x=0.
   Do not place markers inside shelf collision mesh (x > ~4.0 toward row center).
+  aruco_2: open floor at (-2.5, -7.75), west of ClutteringD boxes at (-1.63, -7.81).
 """
 import os
 

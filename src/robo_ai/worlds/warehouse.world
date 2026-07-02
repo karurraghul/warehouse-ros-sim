@@ -236,7 +236,7 @@
         <include>
             <uri>model://marker_aruco_2</uri>
         </include>
-        <pose frame="">-1.6 -7.5 0.3 0 0 0</pose>
+        <pose frame="">-2.5 -7.75 0.3 0 0 0</pose>
 	</model>
 
         <model name="marker_aruco_3_001">

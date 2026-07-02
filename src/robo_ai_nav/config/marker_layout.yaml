@@ -1,0 +1,38 @@
+# ArUco marker plate poses in the warehouse map frame.
+# Keep in sync with src/robo_ai/worlds/warehouse.world and waypoints.yaml standoffs.
+#
+# ClutteringD boxes remain at (-1.63, -7.81).
+# aruco_2 sits west of the box stack (opposite side from aruco_3 to the south-east).
+
+markers:
+  - name: marker_aruco_0
+    aruco_id: 0
+    x: 4.05
+    y: 0.57943
+    z: 0.3
+    yaw: 0.0
+    notes: Aisle-facing shelf front (SHELF_AISLE_FACE_X)
+
+  - name: marker_aruco_1
+    aruco_id: 1
+    x: -1.0
+    y: 6.5
+    z: 0.3
+    yaw: 1.571
+    notes: North open floor
+
+  - name: marker_aruco_2
+    aruco_id: 2
+    x: -2.5
+    y: -7.75
+    z: 0.3
+    yaw: 0.0
+    notes: Open floor west of ClutteringD boxes (away from aruco_3)
+
+  - name: marker_aruco_3
+    aruco_id: 3
+    x: 0.5
+    y: -9.0
+    z: 0.3
+    yaw: 1.571
+    notes: South dock area
