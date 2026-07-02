@@ -91,8 +91,9 @@ def generate_launch_description():
             'scan_dwell_sec': 2.0,
         }],
     )
+    # After Nav2 activation (~6s) + initial_pose (~7s) + AMCL settle.
     waypoint_navigator_delayed = TimerAction(
-        period=9.0,
+        period=12.0,
         actions=[waypoint_navigator_node],
     )
 
@@ -118,7 +119,7 @@ def generate_launch_description():
                 'Camera image topic for the marker detector. Confirm with '
                 '`ros2 topic list` after launch and override if needed.')),
         DeclareLaunchArgument(
-            name='run_waypoint_navigator', default_value='false',
+            name='run_waypoint_navigator', default_value='true',
             description='Also start robo_ai_nav waypoint_navigator on launch.'),
         DeclareLaunchArgument(
             name='waypoints_file',

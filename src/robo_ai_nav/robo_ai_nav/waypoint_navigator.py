@@ -18,11 +18,21 @@ import rclpy
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from lifecycle_msgs.srv import GetState
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 from rcl_interfaces.msg import Parameter as ParamMsg
 from rcl_interfaces.msg import ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
+
+
+AMCL_POSE_QOS = QoSProfile(
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    reliability=ReliabilityPolicy.RELIABLE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+)
 
 
 def yaw_to_quaternion_zw(yaw):
@@ -319,6 +329,59 @@ def amcl_settle_dwell(navigator, seconds, label):
         rclpy.spin_once(navigator, timeout_sec=0.1)
 
 
+def wait_for_amcl_localization(navigator, amcl_ready, timeout_sec=60.0):
+    """Wait for /amcl_pose without re-seeding AMCL (initial_pose_publisher seeds on launch)."""
+    if amcl_ready['value']:
+        navigator.initial_pose_received = True
+        return True
+
+    navigator.get_logger().info(
+        'Waiting for AMCL localization from initial_pose_publisher...')
+    deadline = time.monotonic() + timeout_sec
+    while not amcl_ready['value'] and time.monotonic() < deadline:
+        rclpy.spin_once(navigator, timeout_sec=0.5)
+
+    if not amcl_ready['value']:
+        navigator.get_logger().error(
+            f'AMCL did not publish /amcl_pose within {timeout_sec:.0f}s; '
+            'check initial_pose_publisher, /scan, and Nav2 lifecycle.')
+        return False
+
+    navigator.initial_pose_received = True
+    navigator.get_logger().info('AMCL localization confirmed.')
+    return True
+
+
+def wait_for_nav2_active(navigator, timeout_sec=120.0):
+    """Wait for Nav2 action servers without re-publishing /initialpose."""
+    navigator.get_logger().info('Waiting for Nav2 lifecycle nodes to activate...')
+    deadline = time.monotonic() + timeout_sec
+    for node_name in ('amcl', 'bt_navigator'):
+        service = f'{node_name}/get_state'
+        client = navigator.create_client(GetState, service)
+        while not client.wait_for_service(timeout_sec=1.0):
+            if time.monotonic() > deadline:
+                navigator.get_logger().error(f'Timeout waiting for {service}')
+                return False
+            rclpy.spin_once(navigator, timeout_sec=0.5)
+
+        req = GetState.Request()
+        state = 'unknown'
+        while state != 'active':
+            if time.monotonic() > deadline:
+                navigator.get_logger().error(
+                    f'Timeout waiting for {node_name} to become active (last={state})')
+                return False
+            future = client.call_async(req)
+            rclpy.spin_until_future_complete(navigator, future, timeout_sec=2.0)
+            if future.result() is not None:
+                state = future.result().current_state.label
+            rclpy.spin_once(navigator, timeout_sec=0.1)
+
+    navigator.get_logger().info('Nav2 is ready for use!')
+    return True
+
+
 def build_pose_list(navigator, wp):
     """Build Nav2 pose list: optional through_poses then final x/y/yaw."""
     poses = []
@@ -502,6 +565,7 @@ def main(args=None):
     rclpy.init(args=args)
 
     navigator = BasicNavigator()
+    navigator.get_logger().info('waypoint_navigator starting...')
     robo_ai_share = get_package_share_directory('robo_ai')
     pkg_share = get_package_share_directory('robo_ai_nav')
     map_yaml = os.path.join(robo_ai_share, 'maps', 'warehouse_map.yaml')
@@ -534,16 +598,19 @@ def main(args=None):
 
     latest_markers = {}
     latest_amcl = {'pose': None}
+    amcl_ready = {'value': False}
 
     def on_detected_markers(msg: String):
         latest_markers['data'] = msg.data
 
     def on_amcl_pose(msg: PoseWithCovarianceStamped):
         latest_amcl['pose'] = msg
+        amcl_ready['value'] = True
+        navigator.initial_pose_received = True
 
     navigator.create_subscription(String, '/detected_markers', on_detected_markers, 10)
     navigator.create_subscription(
-        PoseWithCovarianceStamped, '/amcl_pose', on_amcl_pose, 10)
+        PoseWithCovarianceStamped, '/amcl_pose', on_amcl_pose, AMCL_POSE_QOS)
 
     navigator.get_logger().info(f'Loaded {len(waypoints_cfg)} waypoints from {waypoints_file}')
     for i, wp in enumerate(waypoints_cfg):
@@ -556,12 +623,14 @@ def main(args=None):
             f'-> expect ArUco id={expected}, nav_profile={profile}, '
             f'through_poses={through}, retreat_after_scan={retreat}')
 
-    initial_pose = make_pose_stamped(
-        navigator, initial_pose_cfg['x'], initial_pose_cfg['y'], initial_pose_cfg['yaw'])
-    navigator.setInitialPose(initial_pose)
+    # Do not call setInitialPose here — initial_pose_publisher already seeded AMCL.
+    if not wait_for_amcl_localization(navigator, amcl_ready):
+        rclpy.shutdown()
+        return
 
-    navigator.get_logger().info('Waiting for Nav2 to become active...')
-    navigator.waitUntilNav2Active()
+    if not wait_for_nav2_active(navigator):
+        rclpy.shutdown()
+        return
 
     overall_result = TaskResult.SUCCEEDED
 
