@@ -68,14 +68,24 @@ def parse_aruco_ids(marker_json):
     ]
 
 
-def make_double_param(name, value):
+def make_param(name, value):
     msg = ParamMsg()
     msg.name = name
-    msg.value = ParameterValue(
-        type=ParameterType.PARAMETER_DOUBLE,
-        double_value=float(value),
-    )
+    if isinstance(value, bool):
+        msg.value = ParameterValue(
+            type=ParameterType.PARAMETER_BOOL,
+            bool_value=value,
+        )
+    else:
+        msg.value = ParameterValue(
+            type=ParameterType.PARAMETER_DOUBLE,
+            double_value=float(value),
+        )
     return msg
+
+
+def make_double_param(name, value):
+    return make_param(name, value)
 
 
 class NavProfileApplier:
@@ -106,7 +116,7 @@ class NavProfileApplier:
 
         request = SetParameters.Request()
         request.parameters = [
-            make_double_param(name, value) for name, value in param_dict.items()
+            make_param(name, value) for name, value in param_dict.items()
         ]
         future = client.call_async(request)
         rclpy.spin_until_future_complete(self._node, future, timeout_sec=5.0)
@@ -133,22 +143,45 @@ class NavProfileApplier:
 
         inflation = profile['inflation_radius']
         xy_tol = profile['xy_goal_tolerance']
+        cost_scale = profile.get('cost_scaling_factor', 3.0)
+        obstacle_scale = profile.get('base_obstacle_scale', 0.08)
+        static_map_only = profile.get('static_map_only', False)
+        local_static_only = profile.get('local_static_only', False)
         self._node.get_logger().info(
             f"Applying nav profile '{profile_name}' for {waypoint_name} "
-            f'(inflation={inflation}, xy_goal_tolerance={xy_tol})')
+            f'(inflation={inflation}, cost_scale={cost_scale}, '
+            f'obstacle_scale={obstacle_scale}, static_map_only={static_map_only}, '
+            f'local_static_only={local_static_only}, xy_tol={xy_tol})')
 
-        costmap_params = {'inflation_layer.inflation_radius': inflation}
+        costmap_params = {
+            'inflation_layer.inflation_radius': inflation,
+            'inflation_layer.cost_scaling_factor': cost_scale,
+        }
+        if static_map_only:
+            costmap_params['obstacle_layer.enabled'] = False
         ok = True
         for node_name in self.COSTMAP_NODES:
-            ok = self._set_params(node_name, costmap_params) and ok
+            node_params = dict(costmap_params)
+            if static_map_only and node_name.endswith('local_costmap'):
+                node_params.pop('obstacle_layer.enabled', None)
+            if local_static_only and node_name.endswith('local_costmap'):
+                node_params['voxel_layer.enabled'] = False
+            ok = self._set_params(node_name, node_params) and ok
         ok = self._set_params(
             '/controller_server',
-            {'general_goal_checker.xy_goal_tolerance': xy_tol},
+            {
+                'general_goal_checker.xy_goal_tolerance': xy_tol,
+                'FollowPath.BaseObstacle.scale': obstacle_scale,
+            },
         ) and ok
         return ok
 
     def restore_default(self):
-        return self.apply('default', 'restore')
+        ok = self.apply('default', 'restore')
+        return self._set_params(
+            '/local_costmap/local_costmap',
+            {'voxel_layer.enabled': True},
+        ) and ok
 
 
 def validate_goal_clearance(navigator, wp, leg_label):
@@ -214,18 +247,145 @@ def dwell_for_scan(navigator, dwell_sec, expected_id, latest_markers, early_exit
     return confirmed
 
 
+def build_pose_list(navigator, wp):
+    """Build Nav2 pose list: optional through_poses then final x/y/yaw."""
+    poses = []
+    for point in wp.get('through_poses', []):
+        poses.append(make_pose_stamped(
+            navigator, point['x'], point['y'], point['yaw']))
+    poses.append(make_pose_stamped(navigator, wp['x'], wp['y'], wp['yaw']))
+    return poses
+
+
+def relocalize_at_pose(navigator, x, y, yaw, label):
+    """Reseed AMCL at a known map pose (reduces sim drift between short legs)."""
+    navigator.get_logger().info(
+        f'Relocalizing AMCL after {label} at ({x:.2f}, {y:.2f}, yaw={yaw:.2f})')
+    navigator.setInitialPose(make_pose_stamped(navigator, x, y, yaw))
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        rclpy.spin_once(navigator, timeout_sec=0.1)
+    navigator.clearLocalCostmap()
+    time.sleep(0.5)
+
+
+def yaw_from_pose_stamped(pose):
+    return yaw_from_quaternion(pose.pose.orientation)
+
+
+# Offsets tried when a sequential leg fails (dynamic local rerouting).
+REROUTE_OFFSETS = (
+    (0.0, -0.12),
+    (-0.35, 0.0),
+    (-0.25, -0.15),
+    (0.0, -0.25),
+)
+
+
+def navigate_single_pose(navigator, pose, step_label):
+    navigator.goToPose(pose)
+    while not navigator.isTaskComplete():
+        rclpy.spin_once(navigator, timeout_sec=0.5)
+    return navigator.getResult()
+
+
+def navigate_single_pose_with_reroute(navigator, pose, step_label):
+    """Try primary goal, then offset alternatives with costmap clears."""
+    base_x = pose.pose.position.x
+    base_y = pose.pose.position.y
+    yaw = yaw_from_pose_stamped(pose)
+
+    for attempt, (dx, dy) in enumerate([(0.0, 0.0), *REROUTE_OFFSETS]):
+        if attempt > 0:
+            navigator.get_logger().warn(
+                f'Rerouting {step_label}: retry {attempt} at offset '
+                f'({dx:+.2f}, {dy:+.2f}) from ({base_x:.2f}, {base_y:.2f})')
+            navigator.clearAllCostmaps()
+            time.sleep(0.5)
+
+        goal = make_pose_stamped(navigator, base_x + dx, base_y + dy, yaw)
+        result = navigate_single_pose(navigator, goal, step_label)
+        if result == TaskResult.SUCCEEDED:
+            if attempt > 0:
+                navigator.get_logger().info(
+                    f'Reroute succeeded for {step_label} on attempt {attempt + 1}')
+            return TaskResult.SUCCEEDED
+
+    navigator.get_logger().error(
+        f'All reroute attempts failed for {step_label}')
+    return TaskResult.FAILED
+
+
+def navigate_sequential_poses(
+        navigator, poses, leg_label, retry_on_fail=False, relocalize_steps=True):
+    """Force each pose in order — optional offset rerouting on failure."""
+    for step, pose in enumerate(poses, start=1):
+        step_label = f'{leg_label} [{step}/{len(poses)}]'
+        navigator.get_logger().info(
+            f'Sequential leg: {step_label} -> '
+            f'({pose.pose.position.x:.2f}, {pose.pose.position.y:.2f})')
+
+        if retry_on_fail:
+            step_result = navigate_single_pose_with_reroute(
+                navigator, pose, step_label)
+        else:
+            step_result = navigate_single_pose(navigator, pose, step_label)
+
+        if step_result != TaskResult.SUCCEEDED:
+            navigator.get_logger().error(
+                f'Failed {step_label} (result={step_result})')
+            return step_result
+        navigator.get_logger().info(f'Reached {step_label}')
+        if relocalize_steps and step < len(poses):
+            relocalize_at_pose(
+                navigator,
+                pose.pose.position.x,
+                pose.pose.position.y,
+                yaw_from_pose_stamped(pose),
+                step_label,
+            )
+    return TaskResult.SUCCEEDED
+
+
 def navigate_to_pose(navigator, wp, leg_label, profile_applier):
     if not validate_goal_clearance(navigator, wp, leg_label):
         return TaskResult.FAILED
 
+    pause_sec = float(wp.get('pause_before_sec', 0.0))
+    if pause_sec > 0.0:
+        navigator.get_logger().info(
+            f'Pausing {pause_sec:.1f}s before {leg_label} (AMCL/costmap settle)')
+        time.sleep(pause_sec)
+
     profile_name = wp.get('nav_profile', 'default')
     profile_applier.apply(profile_name, leg_label)
 
-    navigator.get_logger().info(
-        f'Navigating: {leg_label} at ({wp["x"]}, {wp["y"]}, yaw={wp["yaw"]})')
+    through_poses = wp.get('through_poses')
+    if through_poses:
+        poses = build_pose_list(navigator, wp)
+        if wp.get('force_sequential', False):
+            navigator.get_logger().info(
+                f'Forced sequential navigation through {len(poses)} poses: {leg_label}')
+            return navigate_sequential_poses(
+                navigator, poses, leg_label,
+                retry_on_fail=wp.get('retry_on_fail', False),
+                relocalize_steps=wp.get('relocalize_steps', True))
 
-    goal = make_pose_stamped(navigator, wp['x'], wp['y'], wp['yaw'])
-    navigator.goToPose(goal)
+        navigator.get_logger().info(
+            f'Navigating through {len(poses)} poses: {leg_label} '
+            f'-> final ({wp["x"]}, {wp["y"]}, yaw={wp["yaw"]})')
+        navigator.goThroughPoses(poses)
+    else:
+        goal = make_pose_stamped(navigator, wp['x'], wp['y'], wp['yaw'])
+        if wp.get('retry_on_fail', False):
+            navigator.get_logger().info(
+                f'Navigating with reroute: {leg_label} at '
+                f'({wp["x"]}, {wp["y"]}, yaw={wp["yaw"]})')
+            return navigate_single_pose_with_reroute(navigator, goal, leg_label)
+
+        navigator.get_logger().info(
+            f'Navigating: {leg_label} at ({wp["x"]}, {wp["y"]}, yaw={wp["yaw"]})')
+        navigator.goToPose(goal)
 
     while not navigator.isTaskComplete():
         rclpy.spin_once(navigator, timeout_sec=0.5)
@@ -282,10 +442,11 @@ def main(args=None):
         expected = wp.get('expected_aruco_id', '?')
         profile = wp.get('nav_profile', 'default')
         retreat = 'yes' if wp.get('retreat_after_scan') else 'no'
+        through = len(wp.get('through_poses', []))
         navigator.get_logger().info(
             f'  [{i}] {wp["name"]}: ({wp["x"]}, {wp["y"]}, yaw={wp["yaw"]}) '
             f'-> expect ArUco id={expected}, nav_profile={profile}, '
-            f'retreat_after_scan={retreat}')
+            f'through_poses={through}, retreat_after_scan={retreat}')
 
     initial_pose = make_pose_stamped(
         navigator, initial_pose_cfg['x'], initial_pose_cfg['y'], initial_pose_cfg['yaw'])
@@ -304,12 +465,22 @@ def main(args=None):
             overall_result = leg_result
             break
 
+        if wp.get('skip_scan'):
+            navigator.get_logger().info(
+                'Clearing local costmap after transit leg (drop stale marks)')
+            navigator.clearLocalCostmap()
+            time.sleep(0.5)
+
         if not wp.get('skip_scan'):
             expected = wp.get('expected_aruco_id')
             dwell_for_scan(
                 navigator, scan_dwell_sec, expected, latest_markers)
             log_waypoint_scan(
                 navigator, wp, latest_markers.get('data'), latest_amcl['pose'])
+
+        if wp.get('relocalize_after_scan'):
+            relocalize_at_pose(
+                navigator, wp['x'], wp['y'], wp['yaw'], wp['name'])
 
         retreat = wp.get('retreat_after_scan')
         if retreat:
@@ -319,6 +490,7 @@ def main(args=None):
                 'y': retreat['y'],
                 'yaw': retreat['yaw'],
                 'nav_profile': wp.get('retreat_nav_profile', 'default'),
+                'retry_on_fail': wp.get('retreat_retry_on_fail', False),
             }
             retreat_label = f'retreat after {wp["name"]}'
             navigator.get_logger().info(

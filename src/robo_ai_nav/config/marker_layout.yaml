@@ -16,15 +16,15 @@ markers:
     y: 6.5
     z: 0.3
     yaw: 1.571
-    notes: North center aisle; scan stop at (0, 3.5), marker at (0, 6.5)
+    notes: North center aisle; scan at (0, 4.0) facing north, then drive south on x=0
 
   - name: marker_aruco_2
     aruco_id: 2
     x: -3.74722
     y: -8.51815
-    z: 0.3          # use 0.3 like other markers (Gazebo saved 0.402)
+    z: 0.3
     yaw: -0.603732
-    notes: Open floor west of ClutteringD; slightly rotated in Gazebo
+    notes: West dock floor (robot's right when driving south); visit before marker 3
 
   - name: marker_aruco_3
     aruco_id: 3
@@ -32,4 +32,4 @@ markers:
     y: -9.0
     z: 0.3
     yaw: 1.571
-    notes: South dock area
+    notes: South center aisle; visited after marker 2 via wp_transit_east_dock

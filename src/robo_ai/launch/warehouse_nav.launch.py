@@ -12,13 +12,16 @@ def generate_launch_description():
 
     map_file = os.path.join(pkg, 'maps', 'warehouse_map.yaml')
     nav2_params = os.path.join(pkg, 'config', 'nav2_params.yaml')
-    bt_xml = os.path.join(
+    bt_pose_xml = os.path.join(
         pkg, 'config', 'navigate_to_pose_w_replanning_light_recovery.xml')
+    bt_through_poses_xml = os.path.join(
+        pkg, 'config', 'navigate_through_poses_w_replanning_light_recovery.xml')
 
     configured_params = RewrittenYaml(
         source_file=nav2_params,
         param_rewrites={
-            'default_nav_to_pose_bt_xml': bt_xml,
+            'default_nav_to_pose_bt_xml': bt_pose_xml,
+            'default_nav_through_poses_bt_xml': bt_through_poses_xml,
         },
         convert_types=True,
     )

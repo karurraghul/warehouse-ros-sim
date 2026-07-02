@@ -115,6 +115,7 @@
         <ros>
           <remapping>~/out:=imu</remapping>
         </ros>
+        <frame_name>imu_link</frame_name>
         <initial_orientation_as_reference>false</initial_orientation_as_reference>
       </plugin>
     </sensor>

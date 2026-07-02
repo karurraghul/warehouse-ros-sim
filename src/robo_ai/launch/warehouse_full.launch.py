@@ -43,6 +43,17 @@ def generate_launch_description():
             os.path.join(robo_ai_share, 'launch', 'warehouse_nav.launch.py')),
     )
 
+    ekf_node = Node(
+        package='robot_localization',
+        executable='ekf_node',
+        name='ekf_filter_node',
+        output='screen',
+        parameters=[
+            os.path.join(robo_ai_share, 'config', 'ekf.yaml'),
+            {'use_sim_time': use_sim_time},
+        ],
+    )
+
     marker_detector_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(robo_ai_vision_share, 'launch', 'marker_detector.launch.py')),
@@ -96,6 +107,7 @@ def generate_launch_description():
             description='Launch RViz2 with warehouse Nav2 visualization.'),
 
         sim_launch,
+        ekf_node,
         nav2_launch,
         marker_detector_launch,
         waypoint_navigator_node,
