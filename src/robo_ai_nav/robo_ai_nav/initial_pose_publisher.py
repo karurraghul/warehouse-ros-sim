@@ -1,4 +1,4 @@
-"""Publish /initialpose from waypoints.yaml until AMCL reports a pose."""
+"""Publish /initialpose from waypoints.yaml until localization is ready."""
 import math
 import os
 import time
@@ -9,6 +9,9 @@ from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from tf2_ros import Buffer, TransformListener
+
+from robo_ai_nav.localized_pose import localization_ready, uses_tf_localization
 
 
 def yaw_to_quaternion_zw(yaw):
@@ -45,10 +48,12 @@ def main(args=None):
         os.path.join(pkg_share, 'config', 'waypoints.yaml'))
     node.declare_parameter('publish_period_sec', 1.0)
     node.declare_parameter('max_attempts', 30)
+    node.declare_parameter('localization_mode', 'amcl')
 
     waypoints_file = node.get_parameter('waypoints_file').value
     period = node.get_parameter('publish_period_sec').value
     max_attempts = node.get_parameter('max_attempts').value
+    localization_mode = node.get_parameter('localization_mode').value
     initial_pose = load_initial_pose(waypoints_file)
 
     amcl_qos = QoSProfile(
@@ -58,21 +63,26 @@ def main(args=None):
         depth=1,
     )
     pub = node.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
-    amcl_ready = {'value': False}
+    ready = {'value': False}
+    tf_buffer = Buffer(cache_time=rclpy.duration.Duration(seconds=30.0))
+    tf_listener = TransformListener(tf_buffer, node, spin_thread=False)
 
-    def on_amcl_pose(_msg):
-        amcl_ready['value'] = True
+    if localization_mode == 'amcl':
+        def on_amcl_pose(_msg):
+            ready['value'] = True
 
-    node.create_subscription(
-        PoseWithCovarianceStamped, '/amcl_pose', on_amcl_pose, amcl_qos)
+        node.create_subscription(
+            PoseWithCovarianceStamped, '/amcl_pose', on_amcl_pose, amcl_qos)
 
     node.get_logger().info(
-        f'Publishing initial pose from {waypoints_file}: '
+        f'Publishing initial pose from {waypoints_file} '
+        f'(mode={localization_mode}): '
         f'({initial_pose["x"]}, {initial_pose["y"]}, yaw={initial_pose["yaw"]})')
 
     for attempt in range(1, max_attempts + 1):
-        if amcl_ready['value']:
-            node.get_logger().info('AMCL pose received; initial pose publisher done.')
+        if localization_ready(localization_mode, ready['value'], tf_buffer):
+            node.get_logger().info(
+                f'Localization ready ({localization_mode}); initial pose publisher done.')
             break
         msg = make_initial_pose_msg(
             node, initial_pose['x'], initial_pose['y'], initial_pose['yaw'])
@@ -81,16 +91,23 @@ def main(args=None):
         deadline = time.monotonic() + period
         while time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.1)
-            if amcl_ready['value']:
+            if localization_ready(localization_mode, ready['value'], tf_buffer):
                 break
-        if amcl_ready['value']:
-            node.get_logger().info('AMCL pose received; initial pose publisher done.')
+        if localization_ready(localization_mode, ready['value'], tf_buffer):
+            node.get_logger().info(
+                f'Localization ready ({localization_mode}); initial pose publisher done.')
             break
     else:
-        node.get_logger().warn(
-            'AMCL did not publish /amcl_pose before max attempts; '
-            'check map_server, scan, and Nav2 lifecycle.')
+        if uses_tf_localization(localization_mode):
+            node.get_logger().warn(
+                'map->base_footprint TF not available before max attempts; '
+                'check slam_toolbox, /scan, and Nav2 lifecycle.')
+        else:
+            node.get_logger().warn(
+                'AMCL did not publish /amcl_pose before max attempts; '
+                'check map_server, scan, and Nav2 lifecycle.')
 
+    tf_listener = None
     rclpy.shutdown()
 
 

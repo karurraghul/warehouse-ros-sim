@@ -78,7 +78,8 @@ def camera_matrix(width, height, horizontal_fov):
 
 
 def estimate_robot_pose_map(marker_x, marker_y, marker_z, marker_yaw,
-                            rvec, tvec, camera_matrix, dist_coeffs):
+                            rvec, tvec, camera_matrix, dist_coeffs,
+                            camera_frame='camera_optical_frame'):
     """Return (x, y, yaw) for base_footprint in map frame."""
     rotation_cam_marker, _ = cv2.Rodrigues(rvec)
     translation_cam_marker = tvec.reshape(3)
@@ -100,7 +101,10 @@ def estimate_robot_pose_map(marker_x, marker_y, marker_z, marker_yaw,
     transform_map_optical[:3, :3] = rotation_map_optical
     transform_map_optical[:3, 3] = translation_map_optical
 
-    transform_map_base = transform_map_optical @ T_OPTICAL_BASEFOOTPRINT
+    if camera_frame == 'base_footprint':
+        transform_map_base = transform_map_optical
+    else:
+        transform_map_base = transform_map_optical @ T_OPTICAL_BASEFOOTPRINT
     yaw = yaw_from_rotation(transform_map_base[:3, :3])
     return (
         float(transform_map_base[0, 3]),

@@ -17,14 +17,23 @@ import time
 import rclpy
 import yaml
 from ament_index_python.packages import get_package_share_directory
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from action_msgs.msg import GoalStatus
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
 from lifecycle_msgs.srv import GetState
+from nav2_msgs.action import ComputePathToPose
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
+from rclpy.action import ActionClient
 from rcl_interfaces.msg import Parameter as ParamMsg
 from rcl_interfaces.msg import ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from robo_ai_nav.localized_pose import (
+    localization_ready,
+    pose_from_tf,
+    uses_tf_localization,
+)
 from std_msgs.msg import String
+from tf2_ros import Buffer, TransformListener
 
 
 AMCL_POSE_QOS = QoSProfile(
@@ -188,7 +197,7 @@ def resolve_relocalize_pose(
         navigator, x_yaml, y_yaml, yaw_yaml, label,
         latest_markers=None, latest_amcl=None, expected_aruco_id=None,
         prefer_marker=False, prefer_amcl=False, amcl_max_age_sec=1.0,
-        pnp_max_xy_m=0.4, pnp_max_yaw_rad=0.25):
+        pnp_max_xy_m=0.4, pnp_max_yaw_rad=0.25, trust_pnp=False):
     """Choose relocalize seed: validated ArUco PnP, then fresh AMCL, then YAML."""
     amcl_pose = None if latest_amcl is None else latest_amcl.get('pose')
     amcl_fresh = amcl_pose_is_fresh(navigator, amcl_pose, amcl_max_age_sec)
@@ -197,8 +206,9 @@ def resolve_relocalize_pose(
     if prefer_marker and expected_aruco_id is not None:
         pnp_pose = find_robot_pose_map_from_markers(marker_json, expected_aruco_id)
         if pnp_pose is not None:
-            if amcl_fresh and not validate_pnp_against_amcl(
-                    pnp_pose, amcl_pose, pnp_max_xy_m, pnp_max_yaw_rad):
+            pnp_ok = trust_pnp or not amcl_fresh or validate_pnp_against_amcl(
+                pnp_pose, amcl_pose, pnp_max_xy_m, pnp_max_yaw_rad)
+            if not pnp_ok:
                 dist, dyaw = pose_delta_xy_yaw(
                     pnp_pose[0], pnp_pose[1], pnp_pose[2], amcl_pose)
                 navigator.get_logger().warn(
@@ -296,11 +306,12 @@ class NavProfileApplier:
         '/global_costmap/global_costmap',
     )
 
-    def __init__(self, node, profiles, map_bounds=None):
+    def __init__(self, node, profiles, map_bounds=None, localization_mode='amcl'):
         self._node = node
         self._profiles = profiles
         self._clients = {}
         self.map_bounds = map_bounds
+        self._localization_mode = localization_mode
 
     def _get_client(self, target_node):
         if target_node not in self._clients:
@@ -352,7 +363,14 @@ class NavProfileApplier:
         obstacle_scale = profile.get('base_obstacle_scale', 0.08)
         max_vel_x = float(profile.get('max_vel_x', 0.26))
         static_map_only = profile.get('static_map_only', False)
+        if self._localization_mode in ('slam_online', 'slam_localization'):
+            static_map_only = True
+        elif profile.get('use_live_global_obstacles', False):
+            static_map_only = False
         local_static_only = profile.get('local_static_only', False)
+        if (self._localization_mode in ('slam_online', 'slam_localization')
+                and profile_name == 'narrow'):
+            local_static_only = True
         self._node.get_logger().info(
             f"Applying nav profile '{profile_name}' for {waypoint_name} "
             f'(inflation={inflation}, cost_scale={cost_scale}, '
@@ -392,8 +410,16 @@ class NavProfileApplier:
         ) and ok
         return ok
 
+    def apply_slam_global_costmap(self):
+        """Use live SLAM /map via static_layer only; disable global scan marks."""
+        if self._localization_mode not in ('slam_online', 'slam_localization'):
+            return True
+        return self.apply('default', 'slam_startup')
+
     def restore_default(self):
         ok = self.apply('default', 'restore')
+        if self._localization_mode in ('slam_online', 'slam_localization'):
+            return ok
         return self._set_params(
             '/global_costmap/global_costmap',
             {'obstacle_layer.enabled': True},
@@ -475,34 +501,141 @@ def amcl_settle_dwell(navigator, seconds, label):
         rclpy.spin_once(navigator, timeout_sec=0.1)
 
 
-def wait_for_amcl_localization(navigator, amcl_ready, timeout_sec=60.0):
-    """Wait for /amcl_pose without re-seeding AMCL (initial_pose_publisher seeds on launch)."""
-    if amcl_ready['value']:
+def probe_path_to_pose(navigator, goal_pose, timeout_sec=5.0):
+    """Return True if planner_server can reach goal_pose."""
+    client = ActionClient(navigator, ComputePathToPose, 'compute_path_to_pose')
+    if not client.wait_for_server(timeout_sec=timeout_sec):
+        navigator.get_logger().warn('compute_path_to_pose action server unavailable')
+        return False
+
+    request = ComputePathToPose.Goal()
+    request.goal = goal_pose
+    request.planner_id = 'GridBased'
+    request.use_start = False
+
+    send_future = client.send_goal_async(request)
+    rclpy.spin_until_future_complete(navigator, send_future, timeout_sec=timeout_sec)
+    if not send_future.done() or send_future.result() is None:
+        return False
+
+    goal_handle = send_future.result()
+    if not goal_handle.accepted:
+        return False
+
+    result_future = goal_handle.get_result_async()
+    rclpy.spin_until_future_complete(navigator, result_future, timeout_sec=timeout_sec)
+    if not result_future.done() or result_future.result() is None:
+        return False
+
+    status = result_future.result().status
+    return status == GoalStatus.STATUS_SUCCEEDED
+
+
+def mapping_spin(navigator, radians, angular_speed=0.35):
+    """Rotate in place so SLAM can expand mapped free space."""
+    if abs(radians) < 1e-3:
+        return
+
+    pub = navigator.create_publisher(Twist, '/cmd_vel', 10)
+    twist = Twist()
+    twist.angular.z = angular_speed if radians >= 0.0 else -angular_speed
+    duration = abs(radians) / abs(angular_speed)
+    navigator.get_logger().info(
+        f'SLAM mapping spin {math.degrees(radians):.0f} deg '
+        f'at {abs(angular_speed):.2f} rad/s')
+    deadline = time.monotonic() + duration + 0.5
+    while time.monotonic() < deadline:
+        if time.monotonic() < deadline - 0.5:
+            pub.publish(twist)
+        else:
+            stop = Twist()
+            pub.publish(stop)
+        rclpy.spin_once(navigator, timeout_sec=0.05)
+    time.sleep(0.3)
+
+
+def wait_for_slam_planner_ready(navigator, first_wp, profile_applier,
+                                timeout_sec=60.0, spin_rad=1.57,
+                                min_warmup_sec=0.0):
+    """Wait until Navfn can plan to the first waypoint; spin to map if needed."""
+    profile_applier.apply_slam_global_costmap()
+    if min_warmup_sec > 0.0:
+        amcl_settle_dwell(navigator, min_warmup_sec, 'slam_online map warmup')
+
+    goal = make_pose_stamped(navigator, first_wp['x'], first_wp['y'], first_wp['yaw'])
+    navigator.get_logger().info(
+        f'Waiting for planner path to first waypoint '
+        f'({first_wp["x"]}, {first_wp["y"]}) (timeout={timeout_sec:.0f}s)...')
+
+    deadline = time.monotonic() + timeout_sec
+    attempt = 0
+    while time.monotonic() < deadline:
+        attempt += 1
+        if probe_path_to_pose(navigator, goal, timeout_sec=5.0):
+            navigator.get_logger().info(
+                f'SLAM planner ready for {first_wp["name"]} after {attempt} attempt(s)')
+            return True
+
+        remaining = deadline - time.monotonic()
+        navigator.get_logger().info(
+            f'SLAM planner not ready (attempt {attempt}); '
+            f'mapping spin then retry ({remaining:.0f}s left)')
+        if remaining <= spin_rad / 0.35 + 2.0:
+            break
+        mapping_spin(navigator, spin_rad)
+        amcl_settle_dwell(navigator, 1.0, 'post mapping spin')
+
+    navigator.get_logger().error(
+        f'SLAM planner could not reach first waypoint {first_wp["name"]} '
+        f'within {timeout_sec:.0f}s')
+    return False
+
+
+def wait_for_localization(navigator, ready_state, localization_mode, tf_buffer,
+                          timeout_sec=60.0):
+    """Wait for AMCL pose or map->base_footprint TF before starting the mission."""
+    if ready_state['value']:
         navigator.initial_pose_received = True
         return True
 
+    label = localization_mode
     navigator.get_logger().info(
-        'Waiting for AMCL localization from initial_pose_publisher...')
+        f'Waiting for localization ({label}) from initial_pose_publisher...')
     deadline = time.monotonic() + timeout_sec
-    while not amcl_ready['value'] and time.monotonic() < deadline:
+    while not ready_state['value'] and time.monotonic() < deadline:
+        if uses_tf_localization(localization_mode):
+            pose = pose_from_tf(tf_buffer)
+            if pose is not None:
+                ready_state['value'] = True
+                navigator.initial_pose_received = True
+                break
         rclpy.spin_once(navigator, timeout_sec=0.5)
 
-    if not amcl_ready['value']:
+    if not ready_state['value']:
         navigator.get_logger().error(
-            f'AMCL did not publish /amcl_pose within {timeout_sec:.0f}s; '
+            f'Localization ({label}) not ready within {timeout_sec:.0f}s; '
             'check initial_pose_publisher, /scan, and Nav2 lifecycle.')
         return False
 
     navigator.initial_pose_received = True
-    navigator.get_logger().info('AMCL localization confirmed.')
+    navigator.get_logger().info(f'Localization confirmed ({label}).')
     return True
 
 
-def wait_for_nav2_active(navigator, timeout_sec=120.0):
+def wait_for_amcl_localization(navigator, amcl_ready, timeout_sec=60.0):
+    """Backward-compatible wrapper for AMCL-only wait."""
+    return wait_for_localization(
+        navigator, amcl_ready, 'amcl', None, timeout_sec=timeout_sec)
+
+
+def wait_for_nav2_active(navigator, timeout_sec=120.0, localization_mode='amcl'):
     """Wait for Nav2 action servers without re-publishing /initialpose."""
     navigator.get_logger().info('Waiting for Nav2 lifecycle nodes to activate...')
     deadline = time.monotonic() + timeout_sec
-    for node_name in ('amcl', 'bt_navigator'):
+    lifecycle_nodes = ['bt_navigator']
+    if localization_mode == 'amcl':
+        lifecycle_nodes.insert(0, 'amcl')
+    for node_name in lifecycle_nodes:
         service = f'{node_name}/get_state'
         client = navigator.create_client(GetState, service)
         while not client.wait_for_service(timeout_sec=1.0):
@@ -567,11 +700,41 @@ def relocalize_cfg_kwargs(relocalize_cfg):
         'settle_sec': relocalize_cfg.get('settle_sec', 1.5),
         'amcl_max_age_sec': relocalize_cfg.get('amcl_max_age_sec', 1.0),
         'post_settle_sec': relocalize_cfg.get('post_settle_sec', 2.0),
+        'localization_mode': relocalize_cfg.get('localization_mode', 'amcl'),
     }
 
 
+def try_mid_leg_pnp_snap(navigator, step_label, relocalize_cfg, map_bounds):
+    """If dock marker is visible, snap localization from ArUco PnP before the next leg."""
+    if not relocalize_cfg.get('mid_leg_pnp_snap'):
+        return
+    expected_id = relocalize_cfg.get('expected_aruco_id')
+    if expected_id is None:
+        return
+    latest_markers = relocalize_cfg.get('latest_markers')
+    pnp_pose = find_robot_pose_map_from_markers(
+        None if latest_markers is None else latest_markers.get('data'),
+        expected_id,
+    )
+    if pnp_pose is None:
+        return
+    navigator.get_logger().info(
+        f'{step_label}: mid-leg ArUco PnP snap id={expected_id} '
+        f'({pnp_pose[0]:.2f}, {pnp_pose[1]:.2f}, yaw={pnp_pose[2]:.2f})')
+    relocalize_at_pose(
+        navigator,
+        pnp_pose[0],
+        pnp_pose[1],
+        pnp_pose[2],
+        f'{step_label} (mid-leg PnP)',
+        map_bounds,
+        force=True,
+        **relocalize_cfg_kwargs(relocalize_cfg),
+    )
+
+
 def finish_relocalize(navigator, label, post_settle_sec=2.0):
-    """Let AMCL absorb /initialpose, refresh costmaps, then hold for scan matching."""
+    """Let localization absorb /initialpose, refresh costmaps, then hold for scan matching."""
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline:
         rclpy.spin_once(navigator, timeout_sec=0.1)
@@ -584,8 +747,8 @@ def relocalize_at_pose(
         navigator, x, y, yaw, label, map_bounds=None, latest_amcl=None,
         min_xy_m=0.15, min_yaw_rad=0.15, max_xy_m=1.0, max_yaw_rad=0.52,
         settle_sec=1.5, amcl_max_age_sec=1.0, post_settle_sec=2.0,
-        force=False, reseed_only=False):
-    """Reseed AMCL at a map pose when drift is moderate and AMCL is healthy."""
+        force=False, reseed_only=False, localization_mode='amcl'):
+    """Reseed localization at a map pose when drift is moderate."""
     if map_bounds is not None:
         raw_x, raw_y = x, y
         x, y = clamp_to_map(x, y, map_bounds)
@@ -645,8 +808,9 @@ def relocalize_at_pose(
             f'{dist:.2f}m, {dyaw:.2f}rad')
 
     action = 'Reseeding' if reseed_only else ('Forced relocalizing' if force else 'Relocalizing')
+    backend = 'slam_toolbox' if uses_tf_localization(localization_mode) else 'AMCL'
     navigator.get_logger().info(
-        f'{action} AMCL after {label} at ({x:.2f}, {y:.2f}, yaw={yaw:.2f}) '
+        f'{action} {backend} after {label} at ({x:.2f}, {y:.2f}, yaw={yaw:.2f}) '
         f'(delta {dist:.2f}m, {dyaw:.2f}rad)')
     navigator.setInitialPose(make_pose_stamped(navigator, x, y, yaw))
     finish_relocalize(navigator, label, post_settle_sec)
@@ -724,6 +888,7 @@ def navigate_sequential_poses(
     for step, entry in enumerate(steps, start=1):
         pose = entry['pose']
         step_label = f'{leg_label} [{step}/{len(steps)}]'
+        try_mid_leg_pnp_snap(navigator, step_label, relocalize_cfg, map_bounds)
         navigator.get_logger().info(
             f'Sequential leg: {step_label} -> '
             f'({pose.pose.position.x:.2f}, {pose.pose.position.y:.2f})')
@@ -757,6 +922,7 @@ def navigate_sequential_poses(
                 latest_amcl=relocalize_cfg.get('latest_amcl'),
                 prefer_amcl=True,
                 amcl_max_age_sec=relocalize_cfg.get('amcl_max_age_sec', 1.0),
+                trust_pnp=entry.get('relocalize_force', True),
             )
             relocalize_at_pose(
                 navigator,
@@ -814,6 +980,11 @@ def navigate_to_pose(navigator, wp, leg_label, profile_applier, relocalize_cfg=N
     apply_relocalize_before(
         navigator, wp, leg_label, profile_applier.map_bounds, relocalize_cfg)
 
+    if wp.get('clear_costmap_before_leg'):
+        navigator.get_logger().info(f'Clearing costmaps before {leg_label}')
+        navigator.clearAllCostmaps()
+        time.sleep(0.5)
+
     profile_name = wp.get('nav_profile', 'default')
     profile_applier.apply(profile_name, leg_label)
 
@@ -829,7 +1000,12 @@ def navigate_to_pose(navigator, wp, leg_label, profile_applier, relocalize_cfg=N
                 retry_on_fail=wp.get('retry_on_fail', False),
                 relocalize_steps=wp.get('relocalize_steps', False),
                 map_bounds=profile_applier.map_bounds,
-                relocalize_cfg=relocalize_cfg)
+                relocalize_cfg={
+                    **relocalize_cfg,
+                    'mid_leg_pnp_snap': wp.get('mid_leg_pnp_snap', False),
+                    'expected_aruco_id': wp.get('expected_aruco_id'),
+                    'latest_markers': relocalize_cfg.get('latest_markers'),
+                })
 
         navigator.get_logger().info(
             f'Navigating through {len(poses)} poses: {leg_label} '
@@ -886,12 +1062,17 @@ def main(args=None):
     navigator.declare_parameter('amcl_pose_max_age_sec', 3.0)
     navigator.declare_parameter('pnp_max_xy_m', 0.4)
     navigator.declare_parameter('pnp_max_yaw_rad', 0.25)
+    navigator.declare_parameter('localization_mode', 'amcl')
+    navigator.declare_parameter('slam_map_warmup_sec', 15.0)
+    navigator.declare_parameter('slam_planner_ready_timeout_sec', 60.0)
+    navigator.declare_parameter('slam_mapping_spin_rad', 1.57)
 
     waypoints_file = navigator.get_parameter('waypoints_file').value
     nav_profiles_file = navigator.get_parameter('nav_profiles_file').value
     shutdown_on_exit = navigator.get_parameter('shutdown_nav2_on_exit').value
     shutdown_on_failure = navigator.get_parameter('shutdown_nav2_on_failure').value
     scan_dwell_sec = navigator.get_parameter('scan_dwell_sec').value
+    localization_mode = navigator.get_parameter('localization_mode').value
     relocalize_params = {
         'min_xy_m': navigator.get_parameter('relocalize_min_xy_m').value,
         'min_yaw_rad': navigator.get_parameter('relocalize_min_yaw_rad').value,
@@ -912,12 +1093,33 @@ def main(args=None):
             'Mission aborted: one or more poses are outside the static map.')
         rclpy.shutdown()
         return
-    profile_applier = NavProfileApplier(navigator, nav_profiles, map_bounds)
+    profile_applier = NavProfileApplier(
+        navigator, nav_profiles, map_bounds, localization_mode)
 
     latest_markers = {}
     latest_amcl = {'pose': None}
     amcl_ready = {'value': False}
-    relocalize_cfg = dict(relocalize_params, latest_amcl=latest_amcl)
+    relocalize_cfg = dict(
+        relocalize_params,
+        latest_amcl=latest_amcl,
+        latest_markers=latest_markers,
+        localization_mode=localization_mode,
+    )
+    tf_buffer = None
+    tf_listener = None
+    if uses_tf_localization(localization_mode):
+        tf_buffer = Buffer(cache_time=rclpy.duration.Duration(seconds=30.0))
+        tf_listener = TransformListener(tf_buffer, navigator, spin_thread=False)
+
+    def refresh_localized_pose():
+        if not uses_tf_localization(localization_mode):
+            return
+        pose = pose_from_tf(tf_buffer)
+        if pose is None:
+            return
+        latest_amcl['pose'] = pose
+        amcl_ready['value'] = True
+        navigator.initial_pose_received = True
 
     def on_detected_markers(msg: String):
         latest_markers['data'] = msg.data
@@ -928,10 +1130,15 @@ def main(args=None):
         navigator.initial_pose_received = True
 
     navigator.create_subscription(String, '/detected_markers', on_detected_markers, 10)
-    navigator.create_subscription(
-        PoseWithCovarianceStamped, '/amcl_pose', on_amcl_pose, AMCL_POSE_QOS)
+    if localization_mode == 'amcl':
+        navigator.create_subscription(
+            PoseWithCovarianceStamped, '/amcl_pose', on_amcl_pose, AMCL_POSE_QOS)
+    elif uses_tf_localization(localization_mode):
+        navigator.create_timer(0.2, refresh_localized_pose)
 
-    navigator.get_logger().info(f'Loaded {len(waypoints_cfg)} waypoints from {waypoints_file}')
+    navigator.get_logger().info(
+        f'Loaded {len(waypoints_cfg)} waypoints from {waypoints_file} '
+        f'(localization_mode={localization_mode})')
     for i, wp in enumerate(waypoints_cfg):
         expected = wp.get('expected_aruco_id', '?')
         profile = wp.get('nav_profile', 'default')
@@ -943,13 +1150,38 @@ def main(args=None):
             f'through_poses={through}, retreat_after_scan={retreat}')
 
     # Do not call setInitialPose here — initial_pose_publisher already seeded AMCL.
-    if not wait_for_amcl_localization(navigator, amcl_ready):
+    if not wait_for_localization(
+            navigator, amcl_ready, localization_mode, tf_buffer):
+        if tf_listener is not None:
+            tf_listener = None
         rclpy.shutdown()
         return
 
-    if not wait_for_nav2_active(navigator):
+    if not wait_for_nav2_active(navigator, localization_mode=localization_mode):
+        if tf_listener is not None:
+            tf_listener = None
         rclpy.shutdown()
         return
+
+    if localization_mode == 'slam_online':
+        ready_timeout = float(
+            navigator.get_parameter('slam_planner_ready_timeout_sec').value)
+        spin_rad = float(navigator.get_parameter('slam_mapping_spin_rad').value)
+        min_warmup = float(navigator.get_parameter('slam_map_warmup_sec').value)
+        if not wait_for_slam_planner_ready(
+                navigator,
+                waypoints_cfg[0],
+                profile_applier,
+                timeout_sec=ready_timeout,
+                spin_rad=spin_rad,
+                min_warmup_sec=min_warmup):
+            profile_applier.restore_default()
+            if tf_listener is not None:
+                tf_listener = None
+            rclpy.shutdown()
+            return
+    elif localization_mode == 'slam_localization':
+        profile_applier.apply_slam_global_costmap()
 
     overall_result = TaskResult.SUCCEEDED
 
@@ -1002,6 +1234,7 @@ def main(args=None):
                 amcl_max_age_sec=relocalize_cfg.get('amcl_max_age_sec', 1.0),
                 pnp_max_xy_m=relocalize_cfg.get('pnp_max_xy_m', 0.4),
                 pnp_max_yaw_rad=relocalize_cfg.get('pnp_max_yaw_rad', 0.25),
+                trust_pnp=force,
             )
             reseed_only = (
                 source == 'amcl' and bool(wp.get('relocalize_from_marker')))
@@ -1085,6 +1318,8 @@ def main(args=None):
             navigator.get_logger().info(
                 'Nav2 left running (shutdown_nav2_on_failure:=false).')
 
+    if tf_listener is not None:
+        tf_listener = None
     rclpy.shutdown()
 
 

@@ -29,6 +29,7 @@ setup(
         'console_scripts': [
             'waypoint_navigator = robo_ai_nav.waypoint_navigator:main',
             'initial_pose_publisher = robo_ai_nav.initial_pose_publisher:main',
+            'nav_debug_monitor = robo_ai_nav.nav_debug_monitor:main',
         ],
     },
 )

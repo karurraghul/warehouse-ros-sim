@@ -283,6 +283,29 @@ ros2 topic hz /delivery_camera/image_raw
 
 If missing, confirm sim is running and override `camera_topic` if the plugin remapping differs.
 
+## SLAM localization (default)
+
+Production missions use **`slam_localization`**: one posegraph map drives both `map→odom` TF and the Nav2 costmap, so laser scans align with the map at spawn and through the dock leg.
+
+```bash
+ros2 launch robo_ai warehouse_full.launch.py localization_mode:=slam_localization
+```
+
+Requires `src/robo_ai/maps/warehouse.posegraph` and `warehouse.data`. To create or refresh them after world or waypoint changes:
+
+```bash
+# 1) Map the warehouse (mapping-only mode)
+ros2 launch robo_ai warehouse_full.launch.py localization_mode:=slam_online run_waypoint_navigator:=false use_rviz:=true
+# Teleop or drive the full floor, then:
+
+python3 src/robo_ai/scripts/bootstrap_slam_map.py --map-name warehouse --output-dir src/robo_ai/maps
+
+# Or automated (runs waypoint mission then serializes):
+python3 src/robo_ai/scripts/auto_bootstrap_slam_map.py
+```
+
+Use `localization_mode:=amcl` for the legacy static-map + particle-filter stack.
+
 ## Development notes
 
 - **Sync marker moves**: update `warehouse.world`, `marker_layout.yaml`, and `waypoints.yaml` standoffs together

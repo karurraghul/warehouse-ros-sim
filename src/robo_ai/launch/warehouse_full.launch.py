@@ -5,6 +5,9 @@ Usage:
     ros2 launch robo_ai warehouse_full.launch.py
     ros2 launch robo_ai warehouse_full.launch.py run_waypoint_navigator:=true
 
+    ros2 launch robo_ai warehouse_full.launch.py localization_mode:=slam_online
+    ros2 launch robo_ai warehouse_full.launch.py localization_mode:=slam_localization
+
 Camera topic naming depends on the gazebo_ros_camera plugin config in
 delivery_robot_plugins.gazebo - after launch, run `ros2 topic list` to
 confirm the actual image topic and override `camera_topic` if it differs
@@ -31,6 +34,8 @@ def generate_launch_description():
     run_waypoint_navigator = LaunchConfiguration('run_waypoint_navigator')
     waypoints_file = LaunchConfiguration('waypoints_file')
     use_rviz = LaunchConfiguration('use_rviz')
+    localization_mode = LaunchConfiguration('localization_mode')
+    run_debug_monitor = LaunchConfiguration('run_debug_monitor')
 
     sim_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -41,6 +46,9 @@ def generate_launch_description():
     nav2_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(robo_ai_share, 'launch', 'warehouse_nav.launch.py')),
+        launch_arguments={
+            'localization_mode': localization_mode,
+        }.items(),
     )
 
     # Nav2 needs map->odom from AMCL; robot and /scan must exist first.
@@ -66,9 +74,23 @@ def generate_launch_description():
         parameters=[{
             'waypoints_file': waypoints_file,
             'use_sim_time': use_sim_time,
+            'localization_mode': localization_mode,
         }],
     )
     initial_pose_delayed = TimerAction(period=7.0, actions=[initial_pose_node])
+
+    debug_monitor_node = Node(
+        package='robo_ai_nav',
+        executable='nav_debug_monitor',
+        name='nav_debug_monitor',
+        output='screen',
+        condition=IfCondition(run_debug_monitor),
+        parameters=[
+            os.path.join(robo_ai_nav_share, 'config', 'nav_debug_monitor.yaml'),
+            {'use_sim_time': use_sim_time},
+        ],
+    )
+    debug_monitor_delayed = TimerAction(period=8.0, actions=[debug_monitor_node])
 
     marker_detector_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -89,6 +111,7 @@ def generate_launch_description():
             'waypoints_file': waypoints_file,
             'use_sim_time': use_sim_time,
             'scan_dwell_sec': 2.0,
+            'localization_mode': localization_mode,
         }],
     )
     # After Nav2 activation (~6s) + initial_pose (~7s) + AMCL settle.
@@ -128,11 +151,21 @@ def generate_launch_description():
         DeclareLaunchArgument(
             name='use_rviz', default_value='true',
             description='Launch RViz2 with warehouse Nav2 visualization.'),
+        DeclareLaunchArgument(
+            name='localization_mode',
+            default_value='slam_localization',
+            description=(
+                'Localization backend: slam_localization (default), amcl, or '
+                'slam_online (mapping/bootstrap only).')),
+        DeclareLaunchArgument(
+            name='run_debug_monitor', default_value='true',
+            description='Launch nav_debug_monitor (stuck/collision/direction checks).'),
 
         sim_launch,
         ekf_node_delayed,
         nav2_launch_delayed,
         initial_pose_delayed,
+        debug_monitor_delayed,
         marker_detector_launch,
         waypoint_navigator_delayed,
         rviz_delayed,

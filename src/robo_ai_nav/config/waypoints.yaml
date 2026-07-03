@@ -94,6 +94,13 @@ waypoints:
     retry_on_fail: true
     relocalize_steps: false
     pause_before_sec: 1.0
+    mid_leg_pnp_snap: true
+    clear_costmap_before_leg: true
+    relocalize_before:
+      x: -3.5
+      y: -9.0
+      yaw: 0.0
+      force: true
     through_poses:
       - {x: -3.5, y: -9.0, yaw: 0.0}
       - {x: -2.5, y: -9.0, yaw: 0.0, dwell_after_sec: 1.5, relocalize_after_dwell: true, relocalize_force: true}

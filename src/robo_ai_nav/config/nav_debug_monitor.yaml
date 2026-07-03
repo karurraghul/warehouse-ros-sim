@@ -1,0 +1,16 @@
+nav_debug_monitor:
+  ros__parameters:
+    check_period_sec: 0.5
+    cmd_vel_topic: /cmd_vel
+    odom_topic: /odom
+    scan_topic: /scan
+    stuck_time_sec: 5.0
+    stuck_distance_m: 0.06
+    cmd_linear_threshold: 0.04
+    cmd_angular_threshold: 0.08
+    collision_range_m: 0.20
+    collision_front_half_angle_deg: 50.0
+    collision_time_sec: 1.5
+    wrong_direction_time_sec: 4.0
+    wrong_direction_min_progress_m: 0.08
+    log_repeat_sec: 8.0

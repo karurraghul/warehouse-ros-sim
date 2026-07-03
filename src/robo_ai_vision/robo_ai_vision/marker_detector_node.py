@@ -137,7 +137,7 @@ class MarkerDetectorNode(Node):
             f'frame #{self._frame_count}). Check robot distance/orientation '
             f'or view /marker_detector/image_annotated in RViz.')
 
-    def _estimate_robot_pose(self, marker_id, corners, cam_mtx):
+    def _estimate_robot_pose(self, marker_id, corners, cam_mtx, camera_frame):
         layout = self._marker_layout.get(int(marker_id))
         if layout is None:
             return None
@@ -153,6 +153,7 @@ class MarkerDetectorNode(Node):
                 tvecs[0],
                 cam_mtx,
                 self._dist_coeffs,
+                camera_frame=camera_frame,
             )
         except cv2.error as exc:
             self.get_logger().debug(
@@ -193,7 +194,7 @@ class MarkerDetectorNode(Node):
                     'center_px': [round(cx, 1), round(cy, 1)],
                 }
                 robot_pose = self._estimate_robot_pose(
-                    int(marker_id), marker_corners, cam_mtx)
+                    int(marker_id), marker_corners, cam_mtx, msg.header.frame_id)
                 if robot_pose is not None:
                     entry['robot_pose_map'] = robot_pose
                 detections.append(entry)

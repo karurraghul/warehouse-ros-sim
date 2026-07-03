@@ -15,7 +15,7 @@ tight:
   xy_goal_tolerance: 0.25
   max_vel_x: 0.18
 
-# Dock clutter belt — static global map only; keep local lidar for live avoidance.
+# Dock clutter belt — prefer live global obstacles when AMCL drifts near clutter.
 narrow:
   inflation_radius: 0.18
   cost_scaling_factor: 7.0
@@ -23,4 +23,5 @@ narrow:
   xy_goal_tolerance: 0.22
   max_vel_x: 0.15
   static_map_only: true
+  use_live_global_obstacles: true
   local_static_only: false
