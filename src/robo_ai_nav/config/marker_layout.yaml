@@ -25,7 +25,11 @@ markers:
     y: -8.51815
     z: 0.3
     yaw: -0.603732
-    notes: West dock floor (robot's right when driving south); visit before marker 3
+    notes: >-
+      West dock floor; visited last, after marker 3. Approached from the
+      east along the clear y=-7.0 lane (the y=-8.0 lane clips the
+      ClutteringD prop's unmapped SLAM shadow around x=-1.6), then straight
+      south on x=-4.2.
 
   - name: marker_aruco_3
     aruco_id: 3
@@ -33,4 +37,7 @@ markers:
     y: -9.0
     z: 0.3
     yaw: 1.571
-    notes: South center aisle; visited after marker 2 via wp_transit_east_dock
+    notes: >-
+      South center aisle; visited right after the WP1 transit, via a
+      straight shot south on x=0.5 (clear of both the clutter prop and the
+      pallet jack, which sit further west near x=-1.6 and x=-0.3).

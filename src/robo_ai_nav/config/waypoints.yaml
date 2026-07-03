@@ -1,7 +1,15 @@
 # Map-frame waypoints — short legs through center aisle, no retreats.
 #
 # Map bounds (warehouse_map.yaml): x=[-8.16, 7.49], y=[-13.0, 8.95]
-# WP0 scan -> row0/marker 1 -> south (AMCL dwell at aisle peel) -> marker 2 -> M3.
+# WP0 scan -> row0/marker 1 -> south transit -> marker 3 -> marker 2 -> back to spawn.
+#
+# South-of-row0 crossing lane: the y=-8.0 "dock" corridor used previously runs
+# straight through the ClutteringD prop (~x=-1.6, y=-7.8) and its SLAM-map
+# shadow (x=[-2.4, -1.2] shows up as unmapped/occupied from y=-8.8 to -7.8).
+# The static map confirms a fully open lane at y=-7.0 across the whole
+# x=[-4.5, 1.0] span, so every east-west crossing between marker 3's and
+# marker 2's longitudes now happens at y=-7.0, well clear of the clutter prop
+# and the pallet jack near marker 3 (center x=-0.28, y=-9.48).
 
 initial_pose:
   x: 0.0
@@ -27,9 +35,9 @@ waypoints:
     force_sequential: true
     retry_on_fail: true
     relocalize_steps: false
-    pause_before_sec: 1.0
+    pause_before_sec: 2.5
     through_poses:
-      - {x: 0.35, y: 0.57943, yaw: 1.571}
+      - {x: 0.35, y: 0.57943, yaw: 1.571, nav_profile: default}
       - {x: 0.35, y: 2.0, yaw: 1.571}
     x: 0.35
     y: 4.0
@@ -44,7 +52,8 @@ waypoints:
       z: 0.3
       yaw: 1.571
 
-  # South on x=0.35: pause in place at known aisle peel pose, then continue south/west.
+  # South on x=0.35: pause in place at known aisle peel pose, then continue
+  # south to a staging pose just above marker 3, on the clear y=-7.0 lane.
   - name: wp_transit_south_to_west
     nav_profile: tight
     force_sequential: true
@@ -58,37 +67,15 @@ waypoints:
       - {x: 0.35, y: -3.0, yaw: -1.571}
       - {x: 0.35, y: -4.0, yaw: -1.571}
       - {x: 0.35, y: -5.0, yaw: -1.571, dwell_after_sec: 2.0, relocalize_after_dwell: true, relocalize_force: true}
-      - {x: 0.35, y: -5.0, yaw: 0.0}
-      - {x: -2.0, y: -5.0, yaw: 0.0}
-    x: -3.8
-    y: -8.0
-    yaw: 0.0
+      - {x: 0.35, y: -6.0, yaw: -1.571}
+    x: 0.5
+    y: -7.0
+    yaw: -1.571
 
-  - name: wp_marker_aruco_2
-    x: -4.2
-    y: -8.51815
-    yaw: 0.0
-    expected_aruco_id: 2
-    nav_profile: default
-    relocalize_after_scan: true
-    relocalize_from_marker: true
-    spin_relocalize_after_scan: false
-    clear_costmap_before_retreat: true
-    marker_pose:
-      x: -3.74722
-      y: -8.51815
-      z: 0.3
-      yaw: -0.603732
-    retreat_after_scan:
-      x: -3.5
-      y: -9.0
-      yaw: 0.0
-      force: true
-    retreat_nav_profile: narrow
-    retreat_retry_on_fail: true
-
-  # y=-9.0 lane past clutter belt toward marker 3.
-  - name: wp_dock_m2_to_m3
+  # Straight shot south on x=0.5 to marker 3 — this column is clear the
+  # whole way (checked against the static map), well east of the clutter
+  # prop and the pallet jack.
+  - name: wp_marker_aruco_3
     nav_profile: narrow
     force_sequential: true
     retry_on_fail: true
@@ -96,16 +83,9 @@ waypoints:
     pause_before_sec: 1.0
     mid_leg_pnp_snap: true
     clear_costmap_before_leg: true
-    relocalize_before:
-      x: -3.5
-      y: -9.0
-      yaw: 0.0
-      force: true
     through_poses:
-      - {x: -3.5, y: -9.0, yaw: 0.0}
-      - {x: -2.5, y: -9.0, yaw: 0.0, dwell_after_sec: 1.5, relocalize_after_dwell: true, relocalize_force: true}
-      - {x: -2.0, y: -9.0, yaw: 0.0}
-      - {x: -0.55, y: -9.0, yaw: 0.0}
+      - {x: 0.5, y: -8.0, yaw: -1.571}
+      - {x: 0.5, y: -9.0, yaw: -1.571, dwell_after_sec: 1.0, relocalize_after_dwell: true, relocalize_force: true}
     x: 0.5
     y: -9.55
     yaw: -1.571
@@ -119,3 +99,54 @@ waypoints:
       y: -9.0
       z: 0.3
       yaw: 1.571
+
+  # Back north out of the marker-3 pocket to the clear y=-7.0 lane, west
+  # across it (clear the whole way, staying well clear of the clutter prop
+  # to the north and the pallet jack to the south), then south into marker 2.
+  - name: wp_marker_aruco_2
+    nav_profile: narrow
+    force_sequential: true
+    retry_on_fail: true
+    relocalize_steps: false
+    pause_before_sec: 1.0
+    clear_costmap_before_leg: true
+    through_poses:
+      - {x: 0.5, y: -9.0, yaw: 1.571}
+      - {x: 0.5, y: -7.0, yaw: 3.141, dwell_after_sec: 1.5, relocalize_after_dwell: true, relocalize_force: true}
+      - {x: -2.0, y: -7.0, yaw: 3.141}
+      - {x: -3.8, y: -7.0, yaw: -1.571}
+      - {x: -4.2, y: -8.0, yaw: -1.571}
+    x: -4.2
+    y: -8.51815
+    yaw: 0.0
+    expected_aruco_id: 2
+    relocalize_after_scan: true
+    relocalize_from_marker: true
+    relocalize_force: true
+    spin_relocalize_after_scan: false
+    marker_pose:
+      x: -3.74722
+      y: -8.51815
+      z: 0.3
+      yaw: -0.603732
+
+  # Mission end: retrace the clear y=-7.0 lane back east, then straight up
+  # the center aisle (x=0.35) to spawn. No scan here, just parking.
+  - name: wp_return_to_spawn
+    nav_profile: tight
+    force_sequential: true
+    retry_on_fail: true
+    relocalize_steps: false
+    skip_scan: true
+    pause_before_sec: 1.0
+    clear_costmap_before_leg: true
+    through_poses:
+      - {x: -4.2, y: -7.0, yaw: 1.571, dwell_after_sec: 1.0, relocalize_after_dwell: true, relocalize_force: true}
+      - {x: -2.0, y: -7.0, yaw: 0.0}
+      - {x: 0.35, y: -7.0, yaw: 1.571}
+      - {x: 0.35, y: -5.0, yaw: 1.571}
+      - {x: 0.35, y: -3.0, yaw: 1.571}
+      - {x: 0.35, y: -1.0, yaw: 1.571}
+    x: 0.0
+    y: 0.0
+    yaw: 0.0

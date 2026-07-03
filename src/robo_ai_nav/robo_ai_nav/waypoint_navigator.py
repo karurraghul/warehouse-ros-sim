@@ -221,7 +221,7 @@ def resolve_relocalize_pose(
         latest_markers=None, latest_amcl=None, expected_aruco_id=None,
         prefer_marker=False, prefer_amcl=False, amcl_max_age_sec=1.0,
         pnp_max_xy_m=0.4, pnp_max_yaw_rad=0.25, trust_pnp=False):
-    """Choose relocalize seed: validated ArUco PnP, then fresh AMCL, then YAML."""
+    """Choose relocalize seed: validated ArUco PnP, optional AMCL, then YAML standoff."""
     amcl_pose = None if latest_amcl is None else latest_amcl.get('pose')
     amcl_fresh = amcl_pose_is_fresh(navigator, amcl_pose, amcl_max_age_sec)
     marker_json = None if latest_markers is None else latest_markers.get('data')
@@ -243,7 +243,7 @@ def resolve_relocalize_pose(
                     f'({pnp_pose[0]:.2f}, {pnp_pose[1]:.2f}, yaw={pnp_pose[2]:.2f})')
                 return pnp_pose[0], pnp_pose[1], pnp_pose[2], 'pnp'
 
-    if prefer_amcl or prefer_marker:
+    if prefer_amcl:
         if amcl_fresh:
             amcl_xyyaw = pose_from_amcl(amcl_pose)
             if amcl_xyyaw is not None:
@@ -253,6 +253,10 @@ def resolve_relocalize_pose(
                 return amcl_xyyaw[0], amcl_xyyaw[1], amcl_xyyaw[2], 'amcl'
         navigator.get_logger().warn(
             f'{label}: no fresh AMCL pose for relocalize '
+            f'(max age {amcl_max_age_sec:.1f}s); falling back to YAML')
+    elif prefer_marker and not amcl_fresh:
+        navigator.get_logger().warn(
+            f'{label}: no fresh pose for PnP validation '
             f'(max age {amcl_max_age_sec:.1f}s); falling back to YAML')
 
     navigator.get_logger().info(
@@ -401,13 +405,21 @@ class NavProfileApplier:
         cost_scale = profile.get('cost_scaling_factor', 3.0)
         obstacle_scale = profile.get('base_obstacle_scale', 0.08)
         max_vel_x = float(profile.get('max_vel_x', 0.26))
+        # A profile explicitly asking for live obstacles (e.g. "narrow" for
+        # the dock corridor, where the static SLAM map has unmapped shadow
+        # gaps behind real props) always wins, even in SLAM localization
+        # mode. Otherwise SLAM modes default to static-only global costmap
+        # to avoid drift-smeared live scans poisoning the global plan.
+        live_obstacles = profile.get('use_live_global_obstacles', False)
         static_map_only = profile.get('static_map_only', False)
-        if self._localization_mode in ('slam_online', 'slam_localization'):
-            static_map_only = True
-        elif profile.get('use_live_global_obstacles', False):
+        if live_obstacles:
             static_map_only = False
+        elif self._localization_mode in ('slam_online', 'slam_localization'):
+            static_map_only = True
         local_static_only = profile.get('local_static_only', False)
-        if (self._localization_mode in ('slam_online', 'slam_localization')
+        if live_obstacles:
+            local_static_only = False
+        elif (self._localization_mode in ('slam_online', 'slam_localization')
                 and profile_name == 'narrow'):
             local_static_only = True
         self._node.get_logger().info(
@@ -595,6 +607,8 @@ def mapping_spin(navigator, radians, angular_speed=0.35):
 
 WEDGE_STALL_SEC = 18.0
 WEDGE_MIN_DISPLACEMENT_M = 0.06
+WEDGE_MAX_BACKUPS = 2
+WEDGE_CANCEL_SETTLE_SEC = 0.5
 
 
 def amcl_xy_from_latest(latest_amcl):
@@ -778,7 +792,7 @@ def build_pose_list(navigator, wp):
     return poses
 
 
-def build_sequential_steps(navigator, wp):
+def build_sequential_steps(navigator, wp, default_profile='default'):
     """Build ordered sequential legs with optional per-step dwell_after_sec."""
     steps = []
     for point in wp.get('through_poses', []):
@@ -787,12 +801,14 @@ def build_sequential_steps(navigator, wp):
             'dwell_after_sec': float(point.get('dwell_after_sec', 0.0)),
             'relocalize_after_dwell': bool(point.get('relocalize_after_dwell', False)),
             'relocalize_force': bool(point.get('relocalize_force', False)),
+            'nav_profile': point.get('nav_profile', default_profile),
         })
     steps.append({
         'pose': make_pose_stamped(navigator, wp['x'], wp['y'], wp['yaw']),
         'dwell_after_sec': float(wp.get('dwell_after_sec', 0.0)),
         'relocalize_after_dwell': bool(wp.get('relocalize_after_dwell', False)),
         'relocalize_force': bool(wp.get('relocalize_force', False)),
+        'nav_profile': wp.get('nav_profile', default_profile),
     })
     return steps
 
@@ -981,7 +997,7 @@ REROUTE_OFFSETS = (
 
 
 def navigate_single_pose(navigator, pose, step_label, latest_amcl=None):
-    wedge_backup_done = False
+    wedge_backup_count = 0
     odom_state = {'msg': None}
 
     def on_odom(msg):
@@ -1019,14 +1035,16 @@ def navigate_single_pose(navigator, pose, step_label, latest_amcl=None):
             displacement = odom_displacement_m(
                 start_odom_xy, odom_xy_from_msg(odom_state['msg']))
             if (
-                not wedge_backup_done
+                wedge_backup_count < WEDGE_MAX_BACKUPS
                 and elapsed >= WEDGE_STALL_SEC
                 and displacement is not None
                 and displacement < WEDGE_MIN_DISPLACEMENT_M
             ):
+                wedge_backup_count += 1
                 navigator.get_logger().warn(
                     f'Wedge stall on {step_label}: {elapsed:.0f}s, '
-                    f'{displacement:.3f}m odom moved; canceling Nav2 and backing up')
+                    f'{displacement:.3f}m odom moved; canceling Nav2 and backing up '
+                    f'({wedge_backup_count}/{WEDGE_MAX_BACKUPS})')
                 # #region agent log
                 _debug_log(
                     'H11',
@@ -1037,6 +1055,7 @@ def navigate_single_pose(navigator, pose, step_label, latest_amcl=None):
                         'elapsed_sec': round(elapsed, 1),
                         'displacement_m': round(displacement, 3),
                         'displacement_source': 'odom',
+                        'wedge_backup_count': wedge_backup_count,
                     },
                     run_id='post-fix',
                 )
@@ -1044,11 +1063,10 @@ def navigate_single_pose(navigator, pose, step_label, latest_amcl=None):
                 navigator.cancelTask()
                 while not navigator.isTaskComplete():
                     rclpy.spin_once(navigator, timeout_sec=0.5)
-                settle_deadline = time.monotonic() + 0.3
+                settle_deadline = time.monotonic() + WEDGE_CANCEL_SETTLE_SEC
                 while time.monotonic() < settle_deadline:
                     rclpy.spin_once(navigator, timeout_sec=0.05)
                 drive_wedge_backup(navigator)
-                wedge_backup_done = True
                 started_at = time.monotonic()
                 last_progress_log = started_at
                 start_odom_xy = odom_xy_from_msg(odom_state['msg'])
@@ -1111,7 +1129,8 @@ def navigate_single_pose_with_reroute(navigator, pose, step_label, latest_amcl=N
 
 
 def navigate_sequential_poses(
-        navigator, steps, leg_label, retry_on_fail=False, relocalize_steps=False,
+        navigator, steps, leg_label, profile_applier, default_profile='default',
+        retry_on_fail=False, relocalize_steps=False,
         map_bounds=None, relocalize_cfg=None, goal_xy_tol=0.25, goal_yaw_tol=0.25):
     """Force each pose in order — optional offset rerouting on failure."""
     relocalize_cfg = relocalize_cfg or {}
@@ -1119,6 +1138,12 @@ def navigate_sequential_poses(
     for step, entry in enumerate(steps, start=1):
         pose = entry['pose']
         step_label = f'{leg_label} [{step}/{len(steps)}]'
+        step_profile = entry.get('nav_profile', default_profile)
+        profile_applier.apply(step_profile, step_label)
+        step_xy_tol = float(
+            profile_applier._profiles.get(
+                step_profile, profile_applier._profiles['default']
+            ).get('xy_goal_tolerance', goal_xy_tol))
         try_mid_leg_pnp_snap(navigator, step_label, relocalize_cfg, map_bounds)
 
         amcl_pose = None if latest_amcl is None else latest_amcl.get('pose')
@@ -1126,7 +1151,7 @@ def navigate_sequential_poses(
         skip, metrics = should_skip_sequential_step(
             amcl_pose,
             pose,
-            goal_xy_tol,
+            step_xy_tol,
             goal_yaw_tol,
             xy_only=not is_final,
         )
@@ -1174,17 +1199,18 @@ def navigate_sequential_poses(
             anchor_x = pose.pose.position.x
             anchor_y = pose.pose.position.y
             anchor_yaw = yaw_from_pose_stamped(pose)
-            x, y, yaw, _ = resolve_relocalize_pose(
+            x, y, yaw, source = resolve_relocalize_pose(
                 navigator,
                 anchor_x,
                 anchor_y,
                 anchor_yaw,
                 step_label,
                 latest_amcl=relocalize_cfg.get('latest_amcl'),
-                prefer_amcl=True,
+                prefer_amcl=False,
                 amcl_max_age_sec=relocalize_cfg.get('amcl_max_age_sec', 1.0),
                 trust_pnp=entry.get('relocalize_force', True),
             )
+            force_dwell = entry.get('relocalize_force', True) or source == 'yaml'
             relocalize_at_pose(
                 navigator,
                 x,
@@ -1192,8 +1218,8 @@ def navigate_sequential_poses(
                 yaw,
                 step_label,
                 map_bounds,
-                force=entry.get('relocalize_force', True),
-                reseed_only=True,
+                force=force_dwell,
+                reseed_only=False,
                 **relocalize_cfg_kwargs(relocalize_cfg),
             )
 
@@ -1253,13 +1279,13 @@ def navigate_to_pose(navigator, wp, leg_label, profile_applier, relocalize_cfg=N
     if through_poses:
         poses = build_pose_list(navigator, wp)
         if wp.get('force_sequential', False):
-            steps = build_sequential_steps(navigator, wp)
+            steps = build_sequential_steps(navigator, wp, profile_name)
             profile = profile_applier._profiles.get(
                 profile_name, profile_applier._profiles['default'])
             navigator.get_logger().info(
                 f'Forced sequential navigation through {len(steps)} poses: {leg_label}')
             return navigate_sequential_poses(
-                navigator, steps, leg_label,
+                navigator, steps, leg_label, profile_applier, profile_name,
                 retry_on_fail=wp.get('retry_on_fail', False),
                 relocalize_steps=wp.get('relocalize_steps', False),
                 map_bounds=profile_applier.map_bounds,
@@ -1497,18 +1523,18 @@ def main(args=None):
                 latest_amcl=latest_amcl,
                 expected_aruco_id=wp.get('expected_aruco_id'),
                 prefer_marker=bool(wp.get('relocalize_from_marker')),
-                prefer_amcl=True,
+                prefer_amcl=False,
                 amcl_max_age_sec=relocalize_cfg.get('amcl_max_age_sec', 1.0),
                 pnp_max_xy_m=relocalize_cfg.get('pnp_max_xy_m', 0.4),
                 pnp_max_yaw_rad=relocalize_cfg.get('pnp_max_yaw_rad', 0.25),
                 trust_pnp=force,
             )
-            reseed_only = (
-                source == 'amcl' and bool(wp.get('relocalize_from_marker')))
+            if source == 'yaml':
+                force = True
             relocalize_at_pose(
                 navigator, x, y, yaw, wp['name'], map_bounds,
                 force=force,
-                reseed_only=reseed_only,
+                reseed_only=False,
                 **relocalize_cfg_kwargs(relocalize_cfg))
 
         if not wp.get('skip_scan') and spin_relocalize:
