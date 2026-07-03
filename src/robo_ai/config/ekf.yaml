@@ -1,4 +1,5 @@
-# Fuse wheel odometry + IMU for smoother odom->base_footprint (AMCL uses this odom).
+# Fuse wheel odometry + IMU; publishes /odometry/filtered (optional telemetry).
+# AMCL uses raw /odom so motion updates match Gazebo's odom->base_footprint TF.
 ekf_filter_node:
   ros__parameters:
     use_sim_time: true

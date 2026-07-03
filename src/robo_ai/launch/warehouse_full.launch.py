@@ -5,6 +5,15 @@ Usage:
     ros2 launch robo_ai warehouse_full.launch.py
     ros2 launch robo_ai warehouse_full.launch.py run_waypoint_navigator:=true
 
+    # AMCL demo: only accurate if warehouse_map.pgm matches the Gazebo world.
+    # Prefer slam_localization (uses warehouse.posegraph — scan-aligned at spawn).
+    ros2 launch robo_ai warehouse_full.launch.py localization_mode:=slam_localization \\
+        run_waypoint_navigator:=false use_rviz:=true
+
+    # Legacy AMCL + static map (refresh map first — see export_static_map_from_slam.py):
+    ros2 launch robo_ai warehouse_full.launch.py localization_mode:=amcl \\
+        run_waypoint_navigator:=false use_rviz:=true
+
     ros2 launch robo_ai warehouse_full.launch.py localization_mode:=slam_online
     ros2 launch robo_ai warehouse_full.launch.py localization_mode:=slam_localization
 
@@ -129,8 +138,8 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_sim_time}],
         condition=IfCondition(use_rviz),
     )
-    # After initial_pose (7s) + AMCL map->odom; avoids LaserScan TF cache drops.
-    rviz_delayed = TimerAction(period=10.0, actions=[rviz_node])
+    # After initial_pose (7s) + AMCL settle; avoids LaserScan TF cache drops.
+    rviz_delayed = TimerAction(period=12.0, actions=[rviz_node])
 
     return LaunchDescription([
         DeclareLaunchArgument(

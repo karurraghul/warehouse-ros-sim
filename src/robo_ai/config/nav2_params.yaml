@@ -21,7 +21,10 @@ amcl:
     max_particles: 5000
     min_particles: 1000
     odom_frame_id: "odom"
-    odom_topic: "/odometry/filtered"
+    # Must match the odom source that drives odom->base_footprint TF (Gazebo
+    # diff-drive /odom). EKF /odometry/filtered is not used here — mixing
+    # filtered motion updates with raw odom TF causes scan/map misalignment.
+    odom_topic: "/odom"
     pf_err: 0.05
     pf_z: 0.99
     recovery_alpha_fast: 0.1
