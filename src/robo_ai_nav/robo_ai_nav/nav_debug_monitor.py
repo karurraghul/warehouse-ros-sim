@@ -8,6 +8,28 @@ import math
 import time
 from enum import Enum
 
+_DEBUG_LOG_PATH = '/home/raghul/warehouse-ros-sim/.cursor/debug-bc9dc2.log'
+_DEBUG_SESSION_ID = 'bc9dc2'
+
+
+def _debug_log(hypothesis_id, location, message, data=None, run_id='pre-fix'):
+    # #region agent log
+    payload = {
+        'sessionId': _DEBUG_SESSION_ID,
+        'timestamp': int(time.time() * 1000),
+        'hypothesisId': hypothesis_id,
+        'location': location,
+        'message': message,
+        'data': data or {},
+        'runId': run_id,
+    }
+    try:
+        with open(_DEBUG_LOG_PATH, 'a', encoding='utf-8') as log_file:
+            log_file.write(json.dumps(payload) + '\n')
+    except OSError:
+        pass
+    # #endregion
+
 import rclpy
 from geometry_msgs.msg import Twist
 from lifecycle_msgs.msg import State as LifecycleState
@@ -73,6 +95,8 @@ class NavDebugMonitor(LifecycleNode):
         self._blocked_since = None
         self._health = NavHealth.OK
         self._last_log_at = {}
+        self._creep_since = None
+        self._last_backup_log_at = 0.0
         self._timer = None
         self._subs = []
         self._pubs = {}
@@ -100,6 +124,7 @@ class NavDebugMonitor(LifecycleNode):
 
         self._subs = [
             self.create_subscription(Twist, cmd_topic, self._on_cmd_vel, 10),
+            self.create_subscription(Twist, 'cmd_vel_nav', self._on_cmd_vel_nav, 10),
             self.create_subscription(Odometry, odom_topic, self._on_odom, 10),
             self.create_subscription(LaserScan, scan_topic, self._on_scan, 10),
         ]
@@ -130,6 +155,54 @@ class NavDebugMonitor(LifecycleNode):
 
     def _on_cmd_vel(self, msg):
         self._cmd_vel = msg
+        now = time.monotonic()
+        angular = abs(msg.angular.z)
+        # H1/H5: legacy DWB creep sample vs post-fix min_speed_theta floor
+        if 0.04 <= angular <= 0.07 and abs(msg.linear.x) < 0.02:
+            if self._creep_since is None:
+                self._creep_since = now
+            elif now - self._creep_since >= 3.0:
+                _debug_log(
+                    'H1',
+                    'nav_debug_monitor.py:_on_cmd_vel',
+                    'legacy_dwb_creep_detected',
+                    {
+                        'angular_z': round(msg.angular.z, 6),
+                        'linear_x': round(msg.linear.x, 3),
+                        'duration_sec': round(now - self._creep_since, 1),
+                    },
+                )
+                self._creep_since = now + 9999.0
+        else:
+            self._creep_since = None
+        # H4: Nav2 BackUp behavior publishes reverse linear velocity
+        if msg.linear.x < -0.08 and now - self._last_backup_log_at >= 2.0:
+            self._last_backup_log_at = now
+            _debug_log(
+                'H4',
+                'nav_debug_monitor.py:_on_cmd_vel',
+                'backup_cmd_vel_detected',
+                {
+                    'linear_x': round(msg.linear.x, 3),
+                    'angular_z': round(msg.angular.z, 3),
+                    'topic': 'cmd_vel',
+                },
+            )
+
+    def _on_cmd_vel_nav(self, msg):
+        now = time.monotonic()
+        if msg.linear.x < -0.08 and now - self._last_backup_log_at >= 2.0:
+            self._last_backup_log_at = now
+            _debug_log(
+                'H4',
+                'nav_debug_monitor.py:_on_cmd_vel_nav',
+                'backup_cmd_vel_nav_detected',
+                {
+                    'linear_x': round(msg.linear.x, 3),
+                    'angular_z': round(msg.angular.z, 3),
+                    'topic': 'cmd_vel_nav',
+                },
+            )
 
     def _on_odom(self, msg):
         self._odom = msg
@@ -276,6 +349,22 @@ class NavDebugMonitor(LifecycleNode):
                 self._last_log_at[health] = now
                 log_fn = self.get_logger().error if health == NavHealth.COLLISION else self.get_logger().warn
                 log_fn(f'NAV DEBUG [{health.value}]: {detail}')
+                # #region agent log
+                hyp = 'H2' if health == NavHealth.STUCK else 'H5'
+                if health == NavHealth.COLLISION:
+                    hyp = 'H2'
+                _debug_log(
+                    hyp,
+                    'nav_debug_monitor.py:_set_health',
+                    f'nav_health_{health.value}',
+                    {
+                        'detail': detail,
+                        'cmd_vel': status['cmd_vel'],
+                        'odom': status.get('odom'),
+                        'front_scan_min_m': status.get('front_scan_min_m'),
+                    },
+                )
+                # #endregion
         elif self._last_log_at:
             self._last_log_at.clear()
 

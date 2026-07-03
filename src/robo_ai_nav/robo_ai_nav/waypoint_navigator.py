@@ -14,6 +14,28 @@ import math
 import os
 import time
 
+_DEBUG_LOG_PATH = '/home/raghul/warehouse-ros-sim/.cursor/debug-bc9dc2.log'
+_DEBUG_SESSION_ID = 'bc9dc2'
+
+
+def _debug_log(hypothesis_id, location, message, data=None, run_id='pre-fix'):
+    # #region agent log
+    payload = {
+        'sessionId': _DEBUG_SESSION_ID,
+        'timestamp': int(time.time() * 1000),
+        'hypothesisId': hypothesis_id,
+        'location': location,
+        'message': message,
+        'data': data or {},
+        'runId': run_id,
+    }
+    try:
+        with open(_DEBUG_LOG_PATH, 'a', encoding='utf-8') as log_file:
+            log_file.write(json.dumps(payload) + '\n')
+    except OSError:
+        pass
+    # #endregion
+
 import rclpy
 import yaml
 from ament_index_python.packages import get_package_share_directory
@@ -22,6 +44,7 @@ from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
 from lifecycle_msgs.srv import GetState
 from nav2_msgs.action import ComputePathToPose
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
+from nav_msgs.msg import Odometry
 from rclpy.action import ActionClient
 from rcl_interfaces.msg import Parameter as ParamMsg
 from rcl_interfaces.msg import ParameterType, ParameterValue
@@ -290,6 +313,22 @@ def pose_delta_xy_yaw(target_x, target_y, target_yaw, amcl_pose):
     return dist, dyaw
 
 
+def should_skip_sequential_step(amcl_pose, goal_pose, xy_tol, yaw_tol, xy_only=False):
+    """Skip redundant sequential legs when the robot is already at the goal."""
+    goal_x = goal_pose.pose.position.x
+    goal_y = goal_pose.pose.position.y
+    goal_yaw = yaw_from_pose_stamped(goal_pose)
+    dist, dyaw = pose_delta_xy_yaw(goal_x, goal_y, goal_yaw, amcl_pose)
+    if dist is None:
+        return False, None
+    metrics = {'dist_m': round(dist, 3), 'dyaw_rad': round(dyaw, 3), 'xy_only': xy_only}
+    if dist > xy_tol:
+        return False, metrics
+    if xy_only or dyaw <= yaw_tol:
+        return True, metrics
+    return False, metrics
+
+
 def amcl_pose_is_fresh(navigator, amcl_pose, max_age_sec=1.0):
     if amcl_pose is None:
         return False
@@ -551,6 +590,74 @@ def mapping_spin(navigator, radians, angular_speed=0.35):
             stop = Twist()
             pub.publish(stop)
         rclpy.spin_once(navigator, timeout_sec=0.05)
+    time.sleep(0.3)
+
+
+WEDGE_STALL_SEC = 18.0
+WEDGE_MIN_DISPLACEMENT_M = 0.06
+
+
+def amcl_xy_from_latest(latest_amcl):
+    if latest_amcl is None:
+        return None
+    pose = latest_amcl.get('pose')
+    if pose is None:
+        return None
+    position = pose.pose.pose.position
+    return position.x, position.y
+
+
+def displacement_from_start(latest_amcl, start_xy):
+    current = amcl_xy_from_latest(latest_amcl)
+    if current is None or start_xy is None:
+        return None
+    return math.hypot(current[0] - start_xy[0], current[1] - start_xy[1])
+
+
+def odom_xy_from_msg(odom_msg):
+    if odom_msg is None:
+        return None
+    position = odom_msg.pose.pose.position
+    return position.x, position.y
+
+
+def odom_displacement_m(start_xy, current_xy):
+    if start_xy is None or current_xy is None:
+        return None
+    return math.hypot(current_xy[0] - start_xy[0], current_xy[1] - start_xy[1])
+
+
+def drive_wedge_backup(navigator, distance_m=0.25, speed_mps=0.20):
+    """Reverse briefly to break stiction when wedged; matches manual teleop fix."""
+    pub_nav = navigator.create_publisher(Twist, 'cmd_vel_nav', 10)
+    pub_vel = navigator.create_publisher(Twist, '/cmd_vel', 10)
+    twist = Twist()
+    twist.linear.x = -abs(speed_mps)
+    duration = distance_m / abs(speed_mps)
+    navigator.get_logger().warn(
+        f'Wedge escape: backing up {distance_m:.2f}m at {speed_mps:.2f} m/s')
+    # #region agent log
+    _debug_log(
+        'H11',
+        'waypoint_navigator.py:drive_wedge_backup',
+        'manual_wedge_backup',
+        {'distance_m': distance_m, 'speed_mps': speed_mps, 'topic': 'cmd_vel_nav'},
+        run_id='post-fix',
+    )
+    # #endregion
+    deadline = time.monotonic() + duration + 0.5
+    while time.monotonic() < deadline:
+        if time.monotonic() < deadline - 0.5:
+            pub_nav.publish(twist)
+            pub_vel.publish(twist)
+        else:
+            stop = Twist()
+            pub_nav.publish(stop)
+            pub_vel.publish(stop)
+        rclpy.spin_once(navigator, timeout_sec=0.05)
+    stop = Twist()
+    pub_nav.publish(stop)
+    pub_vel.publish(stop)
     time.sleep(0.3)
 
 
@@ -873,14 +980,109 @@ REROUTE_OFFSETS = (
 )
 
 
-def navigate_single_pose(navigator, pose, step_label):
-    navigator.goToPose(pose)
-    while not navigator.isTaskComplete():
-        rclpy.spin_once(navigator, timeout_sec=0.5)
-    return navigator.getResult()
+def navigate_single_pose(navigator, pose, step_label, latest_amcl=None):
+    wedge_backup_done = False
+    odom_state = {'msg': None}
+
+    def on_odom(msg):
+        odom_state['msg'] = msg
+
+    odom_sub = navigator.create_subscription(Odometry, '/odom', on_odom, 10)
+
+    def start_navigation():
+        navigator.goToPose(pose)
+
+    try:
+        start_navigation()
+        # #region agent log
+        started_at = time.monotonic()
+        last_progress_log = started_at
+        odom_deadline = time.monotonic() + 1.0
+        while odom_state['msg'] is None and time.monotonic() < odom_deadline:
+            rclpy.spin_once(navigator, timeout_sec=0.1)
+        start_odom_xy = odom_xy_from_msg(odom_state['msg'])
+        _debug_log(
+            'H3',
+            'waypoint_navigator.py:navigate_single_pose',
+            'sequential_leg_started',
+            {
+                'step_label': step_label,
+                'goal_x': round(pose.pose.position.x, 3),
+                'goal_y': round(pose.pose.position.y, 3),
+            },
+        )
+        # #endregion
+        while not navigator.isTaskComplete():
+            rclpy.spin_once(navigator, timeout_sec=0.5)
+            now = time.monotonic()
+            elapsed = now - started_at
+            displacement = odom_displacement_m(
+                start_odom_xy, odom_xy_from_msg(odom_state['msg']))
+            if (
+                not wedge_backup_done
+                and elapsed >= WEDGE_STALL_SEC
+                and displacement is not None
+                and displacement < WEDGE_MIN_DISPLACEMENT_M
+            ):
+                navigator.get_logger().warn(
+                    f'Wedge stall on {step_label}: {elapsed:.0f}s, '
+                    f'{displacement:.3f}m odom moved; canceling Nav2 and backing up')
+                # #region agent log
+                _debug_log(
+                    'H11',
+                    'waypoint_navigator.py:navigate_single_pose',
+                    'wedge_stall_detected',
+                    {
+                        'step_label': step_label,
+                        'elapsed_sec': round(elapsed, 1),
+                        'displacement_m': round(displacement, 3),
+                        'displacement_source': 'odom',
+                    },
+                    run_id='post-fix',
+                )
+                # #endregion
+                navigator.cancelTask()
+                while not navigator.isTaskComplete():
+                    rclpy.spin_once(navigator, timeout_sec=0.5)
+                settle_deadline = time.monotonic() + 0.3
+                while time.monotonic() < settle_deadline:
+                    rclpy.spin_once(navigator, timeout_sec=0.05)
+                drive_wedge_backup(navigator)
+                wedge_backup_done = True
+                started_at = time.monotonic()
+                last_progress_log = started_at
+                start_odom_xy = odom_xy_from_msg(odom_state['msg'])
+                start_navigation()
+                continue
+            # #region agent log
+            if now - last_progress_log >= 15.0:
+                last_progress_log = now
+                _debug_log(
+                    'H2',
+                    'waypoint_navigator.py:navigate_single_pose',
+                    'sequential_leg_still_running',
+                    {'step_label': step_label, 'elapsed_sec': round(elapsed, 1)},
+                )
+            # #endregion
+        result = navigator.getResult()
+        # #region agent log
+        _debug_log(
+            'H3',
+            'waypoint_navigator.py:navigate_single_pose',
+            'sequential_leg_finished',
+            {
+                'step_label': step_label,
+                'elapsed_sec': round(time.monotonic() - started_at, 1),
+                'result': str(result),
+            },
+        )
+        # #endregion
+        return result
+    finally:
+        navigator.destroy_subscription(odom_sub)
 
 
-def navigate_single_pose_with_reroute(navigator, pose, step_label):
+def navigate_single_pose_with_reroute(navigator, pose, step_label, latest_amcl=None):
     """Try primary goal, then offset alternatives with costmap clears."""
     base_x = pose.pose.position.x
     base_y = pose.pose.position.y
@@ -895,7 +1097,8 @@ def navigate_single_pose_with_reroute(navigator, pose, step_label):
             time.sleep(0.5)
 
         goal = make_pose_stamped(navigator, base_x + dx, base_y + dy, yaw)
-        result = navigate_single_pose(navigator, goal, step_label)
+        result = navigate_single_pose(
+            navigator, goal, step_label, latest_amcl=latest_amcl)
         if result == TaskResult.SUCCEEDED:
             if attempt > 0:
                 navigator.get_logger().info(
@@ -909,28 +1112,59 @@ def navigate_single_pose_with_reroute(navigator, pose, step_label):
 
 def navigate_sequential_poses(
         navigator, steps, leg_label, retry_on_fail=False, relocalize_steps=False,
-        map_bounds=None, relocalize_cfg=None):
+        map_bounds=None, relocalize_cfg=None, goal_xy_tol=0.25, goal_yaw_tol=0.25):
     """Force each pose in order — optional offset rerouting on failure."""
     relocalize_cfg = relocalize_cfg or {}
+    latest_amcl = relocalize_cfg.get('latest_amcl')
     for step, entry in enumerate(steps, start=1):
         pose = entry['pose']
         step_label = f'{leg_label} [{step}/{len(steps)}]'
         try_mid_leg_pnp_snap(navigator, step_label, relocalize_cfg, map_bounds)
-        navigator.get_logger().info(
-            f'Sequential leg: {step_label} -> '
-            f'({pose.pose.position.x:.2f}, {pose.pose.position.y:.2f})')
 
-        if retry_on_fail:
-            step_result = navigate_single_pose_with_reroute(
-                navigator, pose, step_label)
+        amcl_pose = None if latest_amcl is None else latest_amcl.get('pose')
+        is_final = step == len(steps)
+        skip, metrics = should_skip_sequential_step(
+            amcl_pose,
+            pose,
+            goal_xy_tol,
+            goal_yaw_tol,
+            xy_only=not is_final,
+        )
+        if skip:
+            navigator.get_logger().info(
+                f'Skipping {step_label}: already within tolerance '
+                f'(dist={metrics["dist_m"]:.2f}m, dyaw={metrics["dyaw_rad"]:.2f}rad, '
+                f'xy_only={metrics["xy_only"]})')
+            # #region agent log
+            _debug_log(
+                'H6',
+                'waypoint_navigator.py:navigate_sequential_poses',
+                'sequential_step_skipped',
+                {
+                    'step_label': step_label,
+                    'goal_x': round(pose.pose.position.x, 3),
+                    'goal_y': round(pose.pose.position.y, 3),
+                    **metrics,
+                },
+            )
+            # #endregion
         else:
-            step_result = navigate_single_pose(navigator, pose, step_label)
+            navigator.get_logger().info(
+                f'Sequential leg: {step_label} -> '
+                f'({pose.pose.position.x:.2f}, {pose.pose.position.y:.2f})')
 
-        if step_result != TaskResult.SUCCEEDED:
-            navigator.get_logger().error(
-                f'Failed {step_label} (result={step_result})')
-            return step_result
-        navigator.get_logger().info(f'Reached {step_label}')
+            if retry_on_fail:
+                step_result = navigate_single_pose_with_reroute(
+                    navigator, pose, step_label, latest_amcl=latest_amcl)
+            else:
+                step_result = navigate_single_pose(
+                    navigator, pose, step_label, latest_amcl=latest_amcl)
+
+            if step_result != TaskResult.SUCCEEDED:
+                navigator.get_logger().error(
+                    f'Failed {step_label} (result={step_result})')
+                return step_result
+            navigator.get_logger().info(f'Reached {step_label}')
 
         dwell_after = float(entry.get('dwell_after_sec', 0.0))
         if dwell_after > 0.0:
@@ -1020,6 +1254,8 @@ def navigate_to_pose(navigator, wp, leg_label, profile_applier, relocalize_cfg=N
         poses = build_pose_list(navigator, wp)
         if wp.get('force_sequential', False):
             steps = build_sequential_steps(navigator, wp)
+            profile = profile_applier._profiles.get(
+                profile_name, profile_applier._profiles['default'])
             navigator.get_logger().info(
                 f'Forced sequential navigation through {len(steps)} poses: {leg_label}')
             return navigate_sequential_poses(
@@ -1027,6 +1263,8 @@ def navigate_to_pose(navigator, wp, leg_label, profile_applier, relocalize_cfg=N
                 retry_on_fail=wp.get('retry_on_fail', False),
                 relocalize_steps=wp.get('relocalize_steps', False),
                 map_bounds=profile_applier.map_bounds,
+                goal_xy_tol=float(profile['xy_goal_tolerance']),
+                goal_yaw_tol=0.25,
                 relocalize_cfg={
                     **relocalize_cfg,
                     'mid_leg_pnp_snap': wp.get('mid_leg_pnp_snap', False),
@@ -1044,7 +1282,9 @@ def navigate_to_pose(navigator, wp, leg_label, profile_applier, relocalize_cfg=N
             navigator.get_logger().info(
                 f'Navigating with reroute: {leg_label} at '
                 f'({wp["x"]}, {wp["y"]}, yaw={wp["yaw"]})')
-            return navigate_single_pose_with_reroute(navigator, goal, leg_label)
+            return navigate_single_pose_with_reroute(
+                navigator, goal, leg_label,
+                latest_amcl=relocalize_cfg.get('latest_amcl'))
 
         navigator.get_logger().info(
             f'Navigating: {leg_label} at ({wp["x"]}, {wp["y"]}, yaw={wp["yaw"]})')
