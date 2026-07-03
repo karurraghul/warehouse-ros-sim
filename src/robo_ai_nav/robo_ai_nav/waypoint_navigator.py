@@ -760,9 +760,23 @@ def relocalize_at_pose(
     amcl_pose = None if latest_amcl is None else latest_amcl.get('pose')
     if not amcl_pose_is_fresh(navigator, amcl_pose, amcl_max_age_sec):
         if force:
+            # Give the pose source (AMCL or slam_toolbox TF poll) a short
+            # window to catch up before trusting an unchecked publish.
+            # Without this, a momentarily stale pose (TF backlog, sim lag)
+            # combined with force=True used to fall straight through to
+            # setInitialPose() with dist/dyaw = inf, i.e. no plausibility
+            # check at all — this is what caused waypoints to jump on scans.
             navigator.get_logger().warn(
-                f'Forced relocalize for {label} with stale /amcl_pose '
-                f'(max age {amcl_max_age_sec:.1f}s)')
+                f'Forced relocalize for {label}: /amcl_pose stale '
+                f'(max age {amcl_max_age_sec:.1f}s); waiting {settle_sec:.1f}s '
+                f'for a fresh pose before publishing')
+            amcl_settle_dwell(navigator, settle_sec, label)
+            amcl_pose = None if latest_amcl is None else latest_amcl.get('pose')
+            if not amcl_pose_is_fresh(navigator, amcl_pose, amcl_max_age_sec):
+                navigator.get_logger().warn(
+                    f'Skipping forced relocalize for {label}: pose still stale '
+                    f'after settle (TF/localization may be backlogged)')
+                return
         else:
             navigator.get_logger().warn(
                 f'Skipping relocalize for {label}: no fresh /amcl_pose '
@@ -771,14 +785,13 @@ def relocalize_at_pose(
 
     dist, dyaw = pose_delta_xy_yaw(x, y, yaw, amcl_pose)
     if dist is None:
-        if force:
-            navigator.get_logger().warn(
-                f'Forced relocalize for {label} without AMCL pose reference')
-            dist, dyaw = float('inf'), float('inf')
-        else:
-            navigator.get_logger().warn(
-                f'Skipping relocalize for {label}: AMCL pose unavailable')
-            return
+        # No reference pose at all (not just stale) — still refuse to
+        # publish blind even when force=True; an unconditional inf/inf
+        # delta bypasses every downstream sanity check below.
+        navigator.get_logger().warn(
+            f'Skipping relocalize for {label}: no pose reference available '
+            f'(cannot validate target against current estimate)')
+        return
 
     if dist < min_xy_m and dyaw < min_yaw_rad and not reseed_only:
         navigator.get_logger().info(
@@ -803,6 +816,20 @@ def relocalize_at_pose(
                 f'{dist:.2f}m, {dyaw:.2f}rad after settle (scan/TF may be backlogged)')
             return
     elif force and (dist > max_xy_m or dyaw > max_yaw_rad):
+        # Forced relocalize deliberately overrides the normal max-delta
+        # guard (used at planned drift-correction checkpoints), but a
+        # single bad PnP read (glare/occlusion) should still be caught —
+        # an absolute ceiling well beyond any planned correction, not the
+        # tunable max_xy_m/max_yaw_rad which force is meant to bypass.
+        hard_xy_ceiling = max(3.0, max_xy_m * 3.0)
+        hard_yaw_ceiling = max(1.57, max_yaw_rad * 3.0)
+        if dist > hard_xy_ceiling or dyaw > hard_yaw_ceiling:
+            navigator.get_logger().error(
+                f'Rejecting forced relocalize for {label}: delta '
+                f'{dist:.2f}m, {dyaw:.2f}rad exceeds hard ceiling '
+                f'{hard_xy_ceiling:.2f}m/{hard_yaw_ceiling:.2f}rad — '
+                f'likely a bad PnP read, not real drift')
+            return
         navigator.get_logger().warn(
             f'Forced relocalize for {label} despite large delta '
             f'{dist:.2f}m, {dyaw:.2f}rad')

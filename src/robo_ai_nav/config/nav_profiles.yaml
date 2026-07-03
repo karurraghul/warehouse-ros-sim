@@ -23,5 +23,5 @@ narrow:
   xy_goal_tolerance: 0.22
   max_vel_x: 0.15
   static_map_only: true
-  use_live_global_obstacles: true
-  local_static_only: false
+  use_live_global_obstacles: false
+  local_static_only: true
