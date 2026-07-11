@@ -20,9 +20,20 @@ tight:
 # obstacle sensing on (both costmaps) or the planner drives straight through
 # real props it can't see on the static map. Just run tight/slow instead.
 narrow:
-  inflation_radius: 0.18
-  cost_scaling_factor: 7.0
-  base_obstacle_scale: 0.02
+  # inflation_radius MUST be >= robot_radius (0.22 in nav2_params.yaml).
+  # It was 0.18: that left a 4cm band around every obstacle that the costmap
+  # called free but was physically in collision, so DWB legally planned
+  # corner-shaving paths -> robot hull contacts props -> friction pins it ->
+  # backup recovery frees it -> same path -> re-contact, forever. (Gazebo
+  # publishes no contact topic for this robot, so the wedge looks like a
+  # silent stall.) Manual RViz goals always worked because they ran under
+  # the default profile's 0.45. The x=0.5 pinch this profile was built to
+  # squeeze has since been rerouted to x=1.0, so it no longer needs to be
+  # collision-blind. base_obstacle_scale 0.02 -> 0.06 so DWB actually
+  # respects obstacle proximity again.
+  inflation_radius: 0.28
+  cost_scaling_factor: 5.0
+  base_obstacle_scale: 0.06
   # Was 0.22 — the robot deadlocked ~0.23m short of the mid-corridor
   # through-poses (rotating in place, never translating the last cm) because
   # DWB can't hold sub-0.22m error in this inflated pinch, so the goal checker

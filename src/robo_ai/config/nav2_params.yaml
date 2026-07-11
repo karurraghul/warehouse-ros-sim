@@ -370,11 +370,12 @@ velocity_smoother:
     max_decel: [-2.5, 0.0, -3.2]
     odom_topic: "odom"
     odom_duration: 0.1
-    # Was [0,0,0]. DWB dithers at its smallest angular sample (±2/38 =
-    # ±0.0526 rad/s with vtheta_samples=20) when wedged in a scoring local
-    # minimum — ~7mm/s wheel speed, too weak to move the robot, but nonzero
-    # so every watchdog thinks it's "moving". Zeroing sub-0.1 rad/s angular
-    # commands turns that invisible dither into a clean stop, so the
-    # progress checker can abort and recovery can actually fire.
-    deadband_velocity: [0.0, 0.0, 0.1]
+    # Keep at zero. A 0.1 angular deadband was briefly tried to suppress
+    # DWB's stationary dither (±0.0526 rad/s sign-flipping when wedged), but
+    # deadbands apply per-axis on EVERY command — including moving arcs like
+    # (linear 0.13, angular 0.06) that DWB uses to steer tight shelf rows.
+    # Flattening those arcs stalled previously-healthy legs. The dither's
+    # actual trigger (forced YAML relocalize snaps knocking the robot
+    # off-path in SLAM mode) is fixed in waypoint_navigator.py instead.
+    deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0
