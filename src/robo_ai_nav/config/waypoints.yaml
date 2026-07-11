@@ -72,9 +72,13 @@ waypoints:
     y: -7.0
     yaw: -1.571
 
-  # Straight shot south on x=0.5 to marker 3 — this column is clear the
-  # whole way (checked against the static map), well east of the clutter
-  # prop and the pallet jack.
+  # Straight shot south on x=1.0 to marker 3. NOT x=0.5 — the static map
+  # said that column was clear, but it's wrong here: PalletJackB_01_001
+  # (world pose -0.276, -9.482) and a shelf leg on the opposite side pinch
+  # the corridor right around y=-9.5, and x=0.5 collides with both sides
+  # (confirmed empirically in Gazebo with View->Collisions, 2026-07-12).
+  # x=1.0 was the midpoint of a 0.9/1.0/1.1 sweep — clearest margin on
+  # both sides, not just barely clearing one.
   - name: wp_marker_aruco_3
     nav_profile: narrow
     force_sequential: true
@@ -84,9 +88,9 @@ waypoints:
     mid_leg_pnp_snap: true
     clear_costmap_before_leg: true
     through_poses:
-      - {x: 0.5, y: -8.0, yaw: -1.571}
-      - {x: 0.5, y: -9.0, yaw: -1.571, dwell_after_sec: 1.0, relocalize_after_dwell: true, relocalize_force: true}
-    x: 0.5
+      - {x: 1.0, y: -8.0, yaw: -1.571}
+      - {x: 1.0, y: -9.0, yaw: -1.571, dwell_after_sec: 1.0, relocalize_after_dwell: true, relocalize_force: true}
+    x: 1.0
     y: -9.55
     yaw: -1.571
     expected_aruco_id: 3
@@ -103,6 +107,9 @@ waypoints:
   # Back north out of the marker-3 pocket to the clear y=-7.0 lane, west
   # across it (clear the whole way, staying well clear of the clutter prop
   # to the north and the pallet jack to the south), then south into marker 2.
+  # First stop matches wp_marker_aruco_3's exit x (1.0, the verified-clear
+  # line) — don't jog back to x=0.5 here, that re-crosses the pinch we just
+  # routed around.
   - name: wp_marker_aruco_2
     nav_profile: narrow
     force_sequential: true
@@ -111,7 +118,7 @@ waypoints:
     pause_before_sec: 1.0
     clear_costmap_before_leg: true
     through_poses:
-      - {x: 0.5, y: -9.0, yaw: 1.571}
+      - {x: 1.0, y: -9.0, yaw: 1.571}
       - {x: 0.5, y: -7.0, yaw: 3.141, dwell_after_sec: 1.5, relocalize_after_dwell: true, relocalize_force: true}
       - {x: -2.0, y: -7.0, yaw: 3.141}
       - {x: -3.8, y: -7.0, yaw: -1.571}
