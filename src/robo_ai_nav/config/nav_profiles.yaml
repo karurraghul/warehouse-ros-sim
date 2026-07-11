@@ -23,6 +23,13 @@ narrow:
   inflation_radius: 0.18
   cost_scaling_factor: 7.0
   base_obstacle_scale: 0.02
-  xy_goal_tolerance: 0.22
+  # Was 0.22 — the robot deadlocked ~0.23m short of the mid-corridor
+  # through-poses (rotating in place, never translating the last cm) because
+  # DWB can't hold sub-0.22m error in this inflated pinch, so the goal checker
+  # never fired. These are transit waypoints on a straight line to the scan
+  # pose, not precision stops — 0.35 lets the robot flow through instead of
+  # wedging on the checkpoint. The final scan still early-exits on marker
+  # detection during the dwell, so approximate arrival is fine.
+  xy_goal_tolerance: 0.35
   max_vel_x: 0.15
   use_live_global_obstacles: true

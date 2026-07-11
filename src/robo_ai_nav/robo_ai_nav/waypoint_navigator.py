@@ -1213,18 +1213,32 @@ def navigate_sequential_poses(
                 amcl_max_age_sec=relocalize_cfg.get('amcl_max_age_sec', 1.0),
                 trust_pnp=entry.get('relocalize_force', True),
             )
-            force_dwell = entry.get('relocalize_force', True) or source == 'yaml'
-            relocalize_at_pose(
-                navigator,
-                x,
-                y,
-                yaw,
-                step_label,
-                map_bounds,
-                force=force_dwell,
-                reseed_only=False,
-                **relocalize_cfg_kwargs(relocalize_cfg),
-            )
+            loc_mode = relocalize_cfg.get('localization_mode', 'amcl')
+            if source == 'yaml' and loc_mode in ('slam_online', 'slam_localization'):
+                # No validated PnP was available, so the only "correction"
+                # on offer is snapping belief to the hardcoded YAML anchor.
+                # In SLAM modes the scan matcher is already tracking pose
+                # continuously — a forced YAML snap injects up to ~0.25m of
+                # error, drags the robot off its own path, and misplaces
+                # live scans against the map (phantom inflation). Every
+                # observed mid-mission stall followed one of these snaps.
+                navigator.get_logger().info(
+                    f'{step_label}: skipping YAML relocalize in {loc_mode} '
+                    f'(scan matcher already tracking; no validated PnP)')
+            else:
+                force_dwell = (
+                    entry.get('relocalize_force', True) or source == 'yaml')
+                relocalize_at_pose(
+                    navigator,
+                    x,
+                    y,
+                    yaw,
+                    step_label,
+                    map_bounds,
+                    force=force_dwell,
+                    reseed_only=False,
+                    **relocalize_cfg_kwargs(relocalize_cfg),
+                )
 
         if relocalize_steps and step < len(steps):
             relocalize_at_pose(
@@ -1532,13 +1546,23 @@ def main(args=None):
                 pnp_max_yaw_rad=relocalize_cfg.get('pnp_max_yaw_rad', 0.25),
                 trust_pnp=force,
             )
-            if source == 'yaml':
-                force = True
-            relocalize_at_pose(
-                navigator, x, y, yaw, wp['name'], map_bounds,
-                force=force,
-                reseed_only=False,
-                **relocalize_cfg_kwargs(relocalize_cfg))
+            loc_mode = relocalize_cfg.get('localization_mode', 'amcl')
+            if source == 'yaml' and loc_mode in ('slam_online', 'slam_localization'):
+                # Same rationale as the sequential-step guard: without a
+                # validated PnP read, force-snapping to the YAML standoff in
+                # SLAM mode only corrupts a pose the scan matcher is already
+                # tracking. Observed repeatedly to precede controller stalls.
+                navigator.get_logger().info(
+                    f'{wp["name"]}: skipping YAML relocalize in {loc_mode} '
+                    f'(scan matcher already tracking; no validated PnP)')
+            else:
+                if source == 'yaml':
+                    force = True
+                relocalize_at_pose(
+                    navigator, x, y, yaw, wp['name'], map_bounds,
+                    force=force,
+                    reseed_only=False,
+                    **relocalize_cfg_kwargs(relocalize_cfg))
 
         if not wp.get('skip_scan') and spin_relocalize:
             force_relocalize_via_spin(navigator, wp['name'])

@@ -115,7 +115,14 @@ bt_navigator_navigate_to_pose_rclcpp_node:
 controller_server:
   ros__parameters:
     use_sim_time: True
-    controller_frequency: 20.0
+    # Lowered from 20.0: on this machine the stack only sustains ~10Hz when
+    # Gazebo+Nav2+RViz+SLAM all run together, so the controller was perpetually
+    # missing its 20Hz deadline. That backlog delays scan/TF processing enough
+    # that lidar messages fall outside the transform cache and get dropped by
+    # the costmap Message Filter -> stale phantom obstacles -> "Failed to make
+    # progress" stalls. Targeting a rate the machine can actually hit reduces
+    # the backlog. Raise back toward 20 if you run with RViz closed / more CPU.
+    controller_frequency: 10.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.01
@@ -128,7 +135,11 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.5
-      movement_time_allowance: 60.0
+      # Was 60.0 — that meant every controller wedge froze the robot for a
+      # full minute before recovery fired. At max_vel_x 0.15 a healthy leg
+      # covers 0.5m in ~4s of motion, so 20s is still generous, and failed
+      # legs now self-recover 3x faster.
+      movement_time_allowance: 20.0
     # Goal checker parameters
     #precise_goal_checker:
     #  plugin: "nav2_controller::SimpleGoalChecker"
@@ -144,7 +155,16 @@ controller_server:
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: False
-      min_vel_x: 0.0
+      # Was 0.0 (forward-only). Marker 3 sits in a dead-end pocket: the robot
+      # drives south to scan, then must head back out. A forward-only
+      # controller can only escape by rotating 180 deg in place, which the
+      # tight pocket + pallet jack won't allow (footprint sweeps into
+      # inflation). Allowing gentle reverse lets it back straight out — the
+      # 360 deg lidar sees behind it — then turn around in the open y=-7 lane.
+      # vx_samples (20) already spans this range, so reverse trajectories get
+      # sampled; the path critics still prefer forward-to-goal, so reverse is
+      # only chosen when it genuinely helps (i.e. escaping a dead end).
+      min_vel_x: -0.13
       min_vel_y: 0.0
       max_vel_x: 0.26
       max_vel_y: 0.0
@@ -350,5 +370,11 @@ velocity_smoother:
     max_decel: [-2.5, 0.0, -3.2]
     odom_topic: "odom"
     odom_duration: 0.1
-    deadband_velocity: [0.0, 0.0, 0.0]
+    # Was [0,0,0]. DWB dithers at its smallest angular sample (±2/38 =
+    # ±0.0526 rad/s with vtheta_samples=20) when wedged in a scoring local
+    # minimum — ~7mm/s wheel speed, too weak to move the robot, but nonzero
+    # so every watchdog thinks it's "moving". Zeroing sub-0.1 rad/s angular
+    # commands turns that invisible dither into a clean stop, so the
+    # progress checker can abort and recovery can actually fire.
+    deadband_velocity: [0.0, 0.0, 0.1]
     velocity_timeout: 1.0
