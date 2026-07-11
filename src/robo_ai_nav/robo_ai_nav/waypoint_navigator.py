@@ -450,9 +450,12 @@ class NavProfileApplier:
             '/controller_server',
             {
                 'general_goal_checker.xy_goal_tolerance': xy_tol,
-                'FollowPath.BaseObstacle.scale': obstacle_scale,
-                'FollowPath.max_vel_x': max_vel_x,
-                'FollowPath.max_speed_xy': max_vel_x,
+                # RPP (Regulated Pure Pursuit) speed knob. The old DWB keys
+                # (FollowPath.max_vel_x / max_speed_xy / BaseObstacle.scale)
+                # don't exist on RPP; obstacle_scale from the profile is now
+                # unused since RPP handles proximity via cost-regulated
+                # velocity scaling instead of a critic weight.
+                'FollowPath.desired_linear_vel': max_vel_x,
             },
         ) and ok
         ok = self._set_params(

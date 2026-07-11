@@ -36,8 +36,15 @@ markers:
     x: 0.5
     y: -9.0
     z: 0.3
-    yaw: 1.571
+    # Was 1.571. PnP estimates from this marker came out mirrored: ~pi off
+    # in yaw and reflected through the marker plane (e.g. robot truly at
+    # (1.0, -9.55, -1.57) estimated as (0.94, -10.76, +2.97)), which is the
+    # signature of marker_rotation_in_map()'s "visible face = model yaw + pi"
+    # convention not matching this plate's mounting. Flipped so the PnP
+    # frame chain lands on the face the robot actually scans. If PnP still
+    # validates poorly here, the AMCL/hard-ceiling gates reject it safely.
+    yaw: -1.571
     notes: >-
-      South center aisle; visited right after the WP1 transit, via a
-      straight shot south on x=0.5 (clear of both the clutter prop and the
-      pallet jack, which sit further west near x=-1.6 and x=-0.3).
+      South center aisle; approached straight south on x=1.0 (rerouted from
+      x=0.5, which collides with the pallet-jack/shelf-leg pinch at y=-9.5;
+      verified empirically in Gazebo 2026-07-12).

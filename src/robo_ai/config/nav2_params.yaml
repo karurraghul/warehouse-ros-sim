@@ -151,57 +151,39 @@ controller_server:
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.35
       yaw_goal_tolerance: 0.25
-    # DWB parameters
+    # Regulated Pure Pursuit — replaced DWB (dwb_core::DWBLocalPlanner).
+    # DWB is a sampling controller: it generates candidate trajectories and
+    # lets critics vote. Across three otherwise-different configs it kept
+    # parking in the same voting local minimum — commanding its smallest
+    # nonzero angular sample (2/38 = 0.0526 rad/s, sign-flipping) with zero
+    # linear, i.e. dithering in place on a clear lane. RPP is geometric path
+    # tracking: no sampling, no voting, no local minima. It rotates in place
+    # to face the path when heading error is large (safe: circular 0.22m
+    # footprint), then tracks the path, slowing for curvature and obstacle
+    # proximity. The old DWB block is in git history if rollback is needed.
     FollowPath:
-      plugin: "dwb_core::DWBLocalPlanner"
-      debug_trajectory_details: False
-      # Was 0.0 (forward-only). Marker 3 sits in a dead-end pocket: the robot
-      # drives south to scan, then must head back out. A forward-only
-      # controller can only escape by rotating 180 deg in place, which the
-      # tight pocket + pallet jack won't allow (footprint sweeps into
-      # inflation). Allowing gentle reverse lets it back straight out — the
-      # 360 deg lidar sees behind it — then turn around in the open y=-7 lane.
-      # vx_samples (20) already spans this range, so reverse trajectories get
-      # sampled; the path critics still prefer forward-to-goal, so reverse is
-      # only chosen when it genuinely helps (i.e. escaping a dead end).
-      min_vel_x: -0.13
-      min_vel_y: 0.0
-      max_vel_x: 0.26
-      max_vel_y: 0.0
-      max_vel_theta: 1.0
-      min_speed_xy: 0.0
-      max_speed_xy: 0.26
-      min_speed_theta: 0.15
-      # Add high threshold velocity for turtlebot 3 issue.
-      # https://github.com/ROBOTIS-GIT/turtlebot3_simulations/issues/75
-      acc_lim_x: 2.5
-      acc_lim_y: 0.0
-      acc_lim_theta: 3.2
-      decel_lim_x: -2.5
-      decel_lim_y: 0.0
-      decel_lim_theta: -3.2
-      vx_samples: 20
-      vy_samples: 5
-      vtheta_samples: 20
-      sim_time: 1.7
-      linear_granularity: 0.05
-      angular_granularity: 0.025
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.22
+      lookahead_dist: 0.6
+      min_lookahead_dist: 0.3
+      max_lookahead_dist: 0.9
+      lookahead_time: 1.5
+      use_velocity_scaled_lookahead_dist: true
       transform_tolerance: 1.0
-      xy_goal_tolerance: 0.25
-      trans_stopped_velocity: 0.25
-      short_circuit_trajectory_evaluation: True
-      stateful: True
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.08
-      PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.1
-      GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.1
-      PathDist.scale: 32.0
-      GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
-      RotateToGoal.slowing_factor: 5.0
-      RotateToGoal.lookahead_time: 0.5
+      min_approach_linear_velocity: 0.05
+      approach_velocity_scaling_dist: 0.6
+      use_collision_detection: true
+      max_allowed_time_to_collision_up_to_carrot: 1.0
+      use_regulated_linear_velocity_scaling: true
+      use_cost_regulated_linear_velocity_scaling: true
+      regulated_linear_scaling_min_radius: 0.9
+      regulated_linear_scaling_min_speed: 0.1
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.785
+      rotate_to_heading_angular_vel: 0.8
+      max_angular_accel: 3.2
+      max_robot_pose_search_dist: 10.0
+      allow_reversing: false
 
 local_costmap:
   local_costmap:
