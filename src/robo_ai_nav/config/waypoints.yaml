@@ -5,7 +5,7 @@
 #
 # 2026-07-12 reliability pass:
 # - WP0: standoff scan at x=1.5 (not shelf-touch x=2.0) + retreat to aisle peel.
-# - M2: one loose corridor hint at (-2.0,-7.0), then scan stop (default inflation).
+# - M2: peel to (0.35,-7.0) then corridor hint at (-2.0,-7.0); narrow profile.
 # - Return: two corridor hints on y=-7.0 then spawn (default profile, not pure planner).
 
 initial_pose:
@@ -108,16 +108,18 @@ waypoints:
       z: 0.3
       yaw: 1.571
 
-  # West along y=-7.0: one corridor hint keeps Nav2 off the clutter/pallet-jack
-  # gap, then default inflation (same as working manual RViz goals) for the scan.
+  # West along y=-7.0: peel north to aisle centerline first (avoids diagonal
+  # clip from M3 scan), then corridor hint west. narrow profile keeps live
+  # lidar on in the clutter belt (static map has shadow gaps here).
   - name: wp_marker_aruco_2
-    nav_profile: default
+    nav_profile: narrow
     force_sequential: true
     retry_on_fail: true
     relocalize_steps: false
     pause_before_sec: 1.0
     clear_costmap_before_leg: true
     through_poses:
+      - {x: 0.35, y: -7.0, yaw: 3.141}
       - {x: -2.0, y: -7.0, yaw: 3.141}
     x: -5.0
     y: -7.0
