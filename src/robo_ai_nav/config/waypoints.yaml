@@ -1,15 +1,12 @@
-# Map-frame waypoints — short legs through center aisle, no retreats.
+# Map-frame waypoints — short legs through center aisle.
 #
 # Map bounds (warehouse_map.yaml): x=[-8.16, 7.49], y=[-13.0, 8.95]
-# WP0 scan -> row0/marker 1 -> south transit -> marker 3 -> marker 2 -> back to spawn.
+# WP0 scan (standoff) -> row0/marker 1 -> south transit -> marker 3 -> marker 2 -> spawn.
 #
-# South-of-row0 crossing lane: the y=-8.0 "dock" corridor used previously runs
-# straight through the ClutteringD prop (~x=-1.6, y=-7.8) and its SLAM-map
-# shadow (x=[-2.4, -1.2] shows up as unmapped/occupied from y=-8.8 to -7.8).
-# The static map confirms a fully open lane at y=-7.0 across the whole
-# x=[-4.5, 1.0] span, so every east-west crossing between marker 3's and
-# marker 2's longitudes now happens at y=-7.0, well clear of the clutter prop
-# and the pallet jack near marker 3 (center x=-0.28, y=-9.48).
+# 2026-07-12 reliability pass:
+# - WP0: standoff scan at x=1.5 (not shelf-touch x=2.0) + retreat to aisle peel.
+# - M2: one loose corridor hint at (-2.0,-7.0), then scan stop (default inflation).
+# - Return: two corridor hints on y=-7.0 then spawn (default profile, not pure planner).
 
 initial_pose:
   x: 0.0
@@ -17,8 +14,10 @@ initial_pose:
   yaw: 0.0
 
 waypoints:
+  # Standoff scan for marker 0 (~2.5m sightline to plate at x=4.05). Dwell
+  # exits early once id=0 is seen — no need to wedge against the shelf row.
   - name: wp_marker_aruco_0
-    x: 2.0
+    x: 1.5
     y: 0.57943
     yaw: 0.0
     expected_aruco_id: 0
@@ -28,6 +27,11 @@ waypoints:
     relocalize_after_scan: true
     relocalize_from_marker: true
     spin_relocalize_after_scan: false
+    retreat_after_scan:
+      x: 0.35
+      y: 0.57943
+      yaw: 0.0
+    relocalize_after_retreat: true
 
   # From WP0: peel west on the row, drive north, scan marker 1 (no separate west retreat leg).
   - name: wp_row0_to_marker_1
@@ -104,26 +108,17 @@ waypoints:
       z: 0.3
       yaw: 1.571
 
-  # Marker 2, relocated 2026-07-12 to the open west wall at (-6.4, -7.0)
-  # facing east (the old SW-corner spot required threading the bucket/
-  # clutter/jack belt and kept misreading at oblique angles). Scan stop
-  # 1.4m head-on (detection verified live via gz-move + teleport).
-  #
-  # No through_poses, deliberately — same trust-the-planner lesson as
-  # wp_return_to_spawn. A hand-picked northern detour (y=-5.5 loop) was
-  # briefly used here; it worked but forced ~10m of travel while a fully
-  # free corridor (static map verified: y=-8.4..-8.8 clear across the
-  # whole width, between ClutteringD's south edge and the pallet jack's
-  # north edge) runs directly west from marker 3's stop. One direct goal
-  # lets NavFn pick that short route itself, with the narrow profile's
-  # live obstacles + RPP collision checks covering anything the map
-  # doesn't know. Pre-rotation Spin handles the initial turn; the
-  # reroute-offset net still guards the goal pose via retry_on_fail.
+  # West along y=-7.0: one corridor hint keeps Nav2 off the clutter/pallet-jack
+  # gap, then default inflation (same as working manual RViz goals) for the scan.
   - name: wp_marker_aruco_2
-    nav_profile: narrow
+    nav_profile: default
+    force_sequential: true
     retry_on_fail: true
+    relocalize_steps: false
     pause_before_sec: 1.0
     clear_costmap_before_leg: true
+    through_poses:
+      - {x: -2.0, y: -7.0, yaw: 3.141}
     x: -5.0
     y: -7.0
     yaw: 3.141
@@ -138,32 +133,19 @@ waypoints:
       z: 0.3
       yaw: 3.14159
 
-  # Mission end: straight back to spawn. No scan here, just parking.
-  #
-  # This used to be a manually hand-picked chain of through_poses forcing
-  # a specific route (east along y=-7.0, then north up x=0.35). That chain
-  # repeatedly wedged right around (0.35,-1.0)/(0.1,-1.15) across multiple
-  # sessions and fixes (relocalize checkpoints, costmap clears, reroute
-  # offsets) — every nearby belief-frame candidate failed identically, even
-  # though neither the world file nor the static map show a real obstacle
-  # there. Diagnosis pointed to the START pose landing in a marginal/
-  # inflated costmap cell after the leg's own earlier churn, which no
-  # amount of *destination* nudging can fix, plus our own guesswork about
-  # which lane is "clear" being wrong at least once already (the bucket
-  # near wp_marker_aruco_2).
-  #
-  # Fix (2026-07-12): stopped dictating the route. No through_poses — a
-  # single direct goal lets Nav2's own global planner (NavFn, full static
-  # map) find the entire path in one shot, the same way a manual RViz
-  # "2D Nav Goal" would, instead of forcing it through our possibly-wrong
-  # waypoint chain. retry_on_fail still applies the existing reroute-offset
-  # safety net if this exact goal pose is ever the problem.
+  # Return home: loose corridor hints on y=-7.0 (not a 6-step precision chain,
+  # not a single planner shot through a pinch). default profile matches manual nav.
   - name: wp_return_to_spawn
-    nav_profile: tight
+    nav_profile: default
+    force_sequential: true
     retry_on_fail: true
+    relocalize_steps: false
     skip_scan: true
     pause_before_sec: 1.0
     clear_costmap_before_leg: true
+    through_poses:
+      - {x: -4.2, y: -7.0, yaw: 0.0}
+      - {x: 0.35, y: -7.0, yaw: 1.571}
     x: 0.0
     y: 0.0
     yaw: 1.571
