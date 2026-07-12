@@ -1,3 +1,12 @@
 build/
 install/
 log/
+
+# Python bytecode (colcon regenerates these on every build)
+__pycache__/
+*.pyc
+
+# Editor-specific configs (not project config — .claude/ IS tracked)
+.cursor/
+.vscode/
+*.md
