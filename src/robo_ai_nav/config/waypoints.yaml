@@ -108,19 +108,20 @@ waypoints:
       z: 0.3
       yaw: 1.571
 
-  # West along y=-7.0: peel north to aisle centerline first (avoids diagonal
-  # clip from M3 scan), then corridor hint west. narrow profile keeps live
-  # lidar on in the clutter belt (static map has shadow gaps here).
+  # Marker 2 scan stop at the open west wall. DIRECT PLANNER GOAL — no
+  # through_poses. The old chain forced a hint at (-2.0,-7.0), which is
+  # literally INSIDE the Bucket_01_021 / ClutteringD cluster (occupied on
+  # the static map, x=-2.0..-1.2 at y=-7.0). That march-into-the-obstacle
+  # is what wedged (86s) and collided ("success sometimes" = threading a
+  # ~0.2m gap narrower than the 0.44m robot). NavFn already knows the
+  # cluster is there and routes around it (BFS-verified clear path exists,
+  # north via y~-5.5 or south via y~-8.4) — a direct goal lets it. narrow
+  # profile keeps live lidar on; retry_on_fail keeps the reroute-offset net.
   - name: wp_marker_aruco_2
     nav_profile: narrow
-    force_sequential: true
     retry_on_fail: true
-    relocalize_steps: false
     pause_before_sec: 1.0
     clear_costmap_before_leg: true
-    through_poses:
-      - {x: 0.35, y: -7.0, yaw: 3.141}
-      - {x: -2.0, y: -7.0, yaw: 3.141}
     x: -5.0
     y: -7.0
     yaw: 3.141
@@ -135,19 +136,18 @@ waypoints:
       z: 0.3
       yaw: 3.14159
 
-  # Return home: loose corridor hints on y=-7.0 (not a 6-step precision chain,
-  # not a single planner shot through a pinch). default profile matches manual nav.
+  # Return home: DIRECT PLANNER GOAL (the "use nav2 planner for the last
+  # waypoint" ask). The old chain hinted (0.35,-7.0), forcing the return to
+  # cross the same bucket cluster east-bound — same collision as the marker-2
+  # chain. A direct goal is NOT "a shot through a pinch": NavFn plans through
+  # free space only and routes around the cluster (and around the marker-3
+  # pocket) on its own. default profile, retry_on_fail keeps the safety net.
   - name: wp_return_to_spawn
     nav_profile: default
-    force_sequential: true
     retry_on_fail: true
-    relocalize_steps: false
     skip_scan: true
     pause_before_sec: 1.0
     clear_costmap_before_leg: true
-    through_poses:
-      - {x: -4.2, y: -7.0, yaw: 0.0}
-      - {x: 0.35, y: -7.0, yaw: 1.571}
     x: 0.0
     y: 0.0
     yaw: 1.571
