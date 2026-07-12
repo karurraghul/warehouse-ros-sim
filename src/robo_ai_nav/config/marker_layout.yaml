@@ -19,17 +19,23 @@ markers:
     yaw: 1.571
     notes: North center aisle; scan at (0, 4.0) facing north, then drive south on x=0
 
+  # Relocated 2026-07-12 from (-3.747,-8.518,yaw -0.604) — the old SW-corner
+  # spot needed threading past the bucket/clutter/jack belt and produced
+  # repeated oblique-angle misreads at its forced 1.15m standoff. Now on the
+  # open west wall (wall face ~x=-6.9 per static map), model yaw 3.14159 so
+  # the visible face (model_yaw + pi) points EAST toward the y=-7.0 lane.
+  # Head-on detection at 1.4m verified live via gz-move + teleport before
+  # committing.
   - name: marker_aruco_2
     aruco_id: 2
-    x: -3.74722
-    y: -8.51815
+    x: -6.4
+    y: -7.0
     z: 0.3
-    yaw: -0.603732
+    yaw: 3.14159
     notes: >-
-      West dock floor; visited last, after marker 3. Approached from the
-      east along the clear y=-7.0 lane (the y=-8.0 lane clips the
-      ClutteringD prop's unmapped SLAM shadow around x=-1.6), then straight
-      south on x=-4.2.
+      West wall, on the y=-7.0 lane. Visible face (model_yaw + pi) points
+      east toward the approach; scanned head-on from (-5.0, -7.0) at 1.4m.
+      Head-on detection verified live 2026-07-12 before committing.
 
   - name: marker_aruco_3
     aruco_id: 3

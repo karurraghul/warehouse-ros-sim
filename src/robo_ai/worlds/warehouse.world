@@ -1704,7 +1704,7 @@
         <enable_wind>0</enable_wind>
         <kinematic>0</kinematic>
       </link>
-    <pose>-3.74722 -8.51815 0.3 0 -0 -0.603732</pose>
+    <pose>-6.4 -7.0 0.3 0 -0 3.14159</pose>
     </model>
     <model name='marker_aruco_3_001'>
       <frame name='marker_aruco_3::__model__' attached_to='marker_aruco_3::link'>
@@ -1732,7 +1732,7 @@
         <enable_wind>0</enable_wind>
         <kinematic>0</kinematic>
       </link>
-      <pose>0.5 -9 0.3 0 -0 1.571</pose>
+      <pose>0.5 -9 0.3 0 -0 -1.571</pose>
     </model>
     <light name='Warehouse_CeilingLight_003' type='point'>
       <pose>0 0 9 0 -0 0</pose>
@@ -2053,20 +2053,20 @@
         </link>
       </model>
       <model name='marker_aruco_2_001'>
-        <pose>-3.74722 -8.51815 0.402022 0 0 -0.603732</pose>
+        <pose>-6.4 -7.0 0.3 0 0 3.14159</pose>
         <scale>1 1 1</scale>
         <link name='marker_aruco_2::link'>
-          <pose>-3.74722 -8.51815 0.402022 0 0 -0.603732</pose>
+          <pose>-6.4 -7.0 0.3 0 0 3.14159</pose>
           <velocity>0 0 0 0 -0 0</velocity>
           <acceleration>0 0 0 0 -0 0</acceleration>
           <wrench>0 0 0 0 -0 0</wrench>
         </link>
       </model>
       <model name='marker_aruco_3_001'>
-        <pose>0.5 -9 0.3 0 -0 1.571</pose>
+        <pose>0.5 -9 0.3 0 -0 -1.571</pose>
         <scale>1 1 1</scale>
         <link name='marker_aruco_3::link'>
-          <pose>0.5 -9 0.3 0 -0 1.571</pose>
+          <pose>0.5 -9 0.3 0 -0 -1.571</pose>
           <velocity>0 0 0 0 -0 0</velocity>
           <acceleration>0 0 0 0 -0 0</acceleration>
           <wrench>0 0 0 0 -0 0</wrench>

@@ -72,13 +72,14 @@ waypoints:
     y: -7.0
     yaw: -1.571
 
-  # Straight shot south on x=1.0 to marker 3. NOT x=0.5 — the static map
-  # said that column was clear, but it's wrong here: PalletJackB_01_001
-  # (world pose -0.276, -9.482) and a shelf leg on the opposite side pinch
-  # the corridor right around y=-9.5, and x=0.5 collides with both sides
-  # (confirmed empirically in Gazebo with View->Collisions, 2026-07-12).
-  # x=1.0 was the midpoint of a 0.9/1.0/1.1 sweep — clearest margin on
-  # both sides, not just barely clearing one.
+  # Marker 3 scan stop. The plate at (0.5, -9) was flipped 2026-07-12 to
+  # face NORTH (world yaw -1.571): its old south-facing front was physically
+  # unscannable from the only navigable approach — ArUco does not decode
+  # from a plate's back face, and every earlier "SCAN OK" here was a stale
+  # mid-transit sighting. The stop now sits NE of the plate at ~0.85m,
+  # angled to face it (sightline verified live by teleport + /detected_markers,
+  # 2026-07-12). This also removes the old y=-9.55 deep-pocket dive next to
+  # the pallet-jack pinch — the hardest leg of the mission — entirely.
   - name: wp_marker_aruco_3
     nav_profile: narrow
     force_sequential: true
@@ -88,11 +89,10 @@ waypoints:
     mid_leg_pnp_snap: true
     clear_costmap_before_leg: true
     through_poses:
-      - {x: 1.0, y: -8.0, yaw: -1.571}
-      - {x: 1.0, y: -9.0, yaw: -1.571, dwell_after_sec: 1.0, relocalize_after_dwell: true, relocalize_force: true}
-    x: 1.0
-    y: -9.55
-    yaw: -1.571
+      - {x: 1.0, y: -7.6, yaw: -1.571}
+    x: 0.9
+    y: -8.3
+    yaw: -2.10
     expected_aruco_id: 3
     relocalize_after_scan: true
     relocalize_from_marker: true
@@ -104,56 +104,66 @@ waypoints:
       z: 0.3
       yaw: 1.571
 
-  # Back north out of the marker-3 pocket to the clear y=-7.0 lane, west
-  # across it (clear the whole way, staying well clear of the clutter prop
-  # to the north and the pallet jack to the south), then south into marker 2.
-  # First stop matches wp_marker_aruco_3's exit x (1.0, the verified-clear
-  # line) — don't jog back to x=0.5 here, that re-crosses the pinch we just
-  # routed around.
+  # Marker 2, relocated 2026-07-12 to the open west wall at (-6.4, -7.0)
+  # facing east (the old SW-corner spot required threading the bucket/
+  # clutter/jack belt and kept misreading at oblique angles). Scan stop
+  # 1.4m head-on (detection verified live via gz-move + teleport).
+  #
+  # No through_poses, deliberately — same trust-the-planner lesson as
+  # wp_return_to_spawn. A hand-picked northern detour (y=-5.5 loop) was
+  # briefly used here; it worked but forced ~10m of travel while a fully
+  # free corridor (static map verified: y=-8.4..-8.8 clear across the
+  # whole width, between ClutteringD's south edge and the pallet jack's
+  # north edge) runs directly west from marker 3's stop. One direct goal
+  # lets NavFn pick that short route itself, with the narrow profile's
+  # live obstacles + RPP collision checks covering anything the map
+  # doesn't know. Pre-rotation Spin handles the initial turn; the
+  # reroute-offset net still guards the goal pose via retry_on_fail.
   - name: wp_marker_aruco_2
     nav_profile: narrow
-    force_sequential: true
     retry_on_fail: true
-    relocalize_steps: false
     pause_before_sec: 1.0
     clear_costmap_before_leg: true
-    through_poses:
-      - {x: 1.0, y: -9.0, yaw: 1.571}
-      - {x: 0.5, y: -7.0, yaw: 3.141, dwell_after_sec: 1.5, relocalize_after_dwell: true, relocalize_force: true}
-      - {x: -2.0, y: -7.0, yaw: 3.141}
-      - {x: -3.8, y: -7.0, yaw: -1.571}
-      - {x: -4.2, y: -8.0, yaw: -1.571}
-    x: -4.2
-    y: -8.51815
-    yaw: 0.0
+    x: -5.0
+    y: -7.0
+    yaw: 3.141
     expected_aruco_id: 2
     relocalize_after_scan: true
     relocalize_from_marker: true
     relocalize_force: true
     spin_relocalize_after_scan: false
     marker_pose:
-      x: -3.74722
-      y: -8.51815
+      x: -6.4
+      y: -7.0
       z: 0.3
-      yaw: -0.603732
+      yaw: 3.14159
 
-  # Mission end: retrace the clear y=-7.0 lane back east, then straight up
-  # the center aisle (x=0.35) to spawn. No scan here, just parking.
+  # Mission end: straight back to spawn. No scan here, just parking.
+  #
+  # This used to be a manually hand-picked chain of through_poses forcing
+  # a specific route (east along y=-7.0, then north up x=0.35). That chain
+  # repeatedly wedged right around (0.35,-1.0)/(0.1,-1.15) across multiple
+  # sessions and fixes (relocalize checkpoints, costmap clears, reroute
+  # offsets) — every nearby belief-frame candidate failed identically, even
+  # though neither the world file nor the static map show a real obstacle
+  # there. Diagnosis pointed to the START pose landing in a marginal/
+  # inflated costmap cell after the leg's own earlier churn, which no
+  # amount of *destination* nudging can fix, plus our own guesswork about
+  # which lane is "clear" being wrong at least once already (the bucket
+  # near wp_marker_aruco_2).
+  #
+  # Fix (2026-07-12): stopped dictating the route. No through_poses — a
+  # single direct goal lets Nav2's own global planner (NavFn, full static
+  # map) find the entire path in one shot, the same way a manual RViz
+  # "2D Nav Goal" would, instead of forcing it through our possibly-wrong
+  # waypoint chain. retry_on_fail still applies the existing reroute-offset
+  # safety net if this exact goal pose is ever the problem.
   - name: wp_return_to_spawn
     nav_profile: tight
-    force_sequential: true
     retry_on_fail: true
-    relocalize_steps: false
     skip_scan: true
     pause_before_sec: 1.0
     clear_costmap_before_leg: true
-    through_poses:
-      - {x: -4.2, y: -7.0, yaw: 1.571, dwell_after_sec: 1.0, relocalize_after_dwell: true, relocalize_force: true}
-      - {x: -2.0, y: -7.0, yaw: 0.0}
-      - {x: 0.35, y: -7.0, yaw: 1.571}
-      - {x: 0.35, y: -5.0, yaw: 1.571}
-      - {x: 0.35, y: -3.0, yaw: 1.571}
-      - {x: 0.35, y: -1.0, yaw: 1.571}
     x: 0.0
     y: 0.0
-    yaw: 0.0
+    yaw: 1.571

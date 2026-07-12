@@ -990,6 +990,37 @@ def yaw_from_pose_stamped(pose):
     return yaw_from_quaternion(pose.pose.orientation)
 
 
+def align_heading_for_scan(navigator, target_yaw, latest_amcl, label,
+                           yaw_tol=0.15, time_allowance=10):
+    """Spin in place to the waypoint's yaw before scanning.
+
+    RPP finishes goals on position only (yaw_goal_tolerance is loose because
+    its rotate-to-heading mode is disabled — it locks into a linear=0 angular
+    oscillation on this stack, and forward-arc alignment trips its collision
+    check next to shelves). Precise camera pointing is done here instead,
+    via the Spin behavior — footprint-safe for this circular robot.
+    """
+    pose = None if latest_amcl is None else latest_amcl.get('pose')
+    if pose is None:
+        navigator.get_logger().warn(
+            f'{label}: no pose available for scan alignment; skipping spin')
+        return
+    current_yaw = yaw_from_quaternion(pose.pose.pose.orientation)
+    dyaw = normalize_angle(target_yaw - current_yaw)
+    if abs(dyaw) <= yaw_tol:
+        return
+    navigator.get_logger().info(
+        f'{label}: aligning heading for scan (spin {dyaw:+.2f} rad)')
+    if not navigator.spin(spin_dist=dyaw, time_allowance=time_allowance):
+        navigator.get_logger().warn(f'{label}: alignment spin rejected')
+        return
+    while not navigator.isTaskComplete():
+        rclpy.spin_once(navigator, timeout_sec=0.5)
+    if navigator.getResult() != TaskResult.SUCCEEDED:
+        navigator.get_logger().warn(
+            f'{label}: alignment spin did not complete; scanning anyway')
+
+
 # Offsets tried when a sequential leg fails (dynamic local rerouting).
 REROUTE_OFFSETS = (
     (0.0, -0.12),
@@ -1000,6 +1031,32 @@ REROUTE_OFFSETS = (
 
 
 def navigate_single_pose(navigator, pose, step_label, latest_amcl=None):
+    # RPP has rotate-to-heading disabled (broken on this stack) and cannot
+    # reverse, so a target behind the robot would force a U-arc — impossible
+    # inside shelf rows and the dock pocket. Pre-rotate toward the target
+    # with the Spin behavior (footprint-safe: circular robot) whenever the
+    # bearing error is large, so RPP always starts roughly forward-facing.
+    current = None if latest_amcl is None else latest_amcl.get('pose')
+    if current is not None:
+        cx = current.pose.pose.position.x
+        cy = current.pose.pose.position.y
+        cyaw = yaw_from_quaternion(current.pose.pose.orientation)
+        tx = pose.pose.position.x
+        ty = pose.pose.position.y
+        if math.hypot(tx - cx, ty - cy) > 0.3:
+            bearing_err = normalize_angle(math.atan2(ty - cy, tx - cx) - cyaw)
+            if abs(bearing_err) > 1.2:
+                navigator.get_logger().info(
+                    f'{step_label}: pre-rotating toward target '
+                    f'(spin {bearing_err:+.2f} rad)')
+                if navigator.spin(spin_dist=bearing_err, time_allowance=12):
+                    while not navigator.isTaskComplete():
+                        rclpy.spin_once(navigator, timeout_sec=0.5)
+                    if navigator.getResult() != TaskResult.SUCCEEDED:
+                        navigator.get_logger().warn(
+                            f'{step_label}: pre-rotation incomplete; '
+                            f'continuing to goal anyway')
+
     wedge_backup_count = 0
     odom_state = {'msg': None}
 
@@ -1070,6 +1127,13 @@ def navigate_single_pose(navigator, pose, step_label, latest_amcl=None):
                 while time.monotonic() < settle_deadline:
                     rclpy.spin_once(navigator, timeout_sec=0.05)
                 drive_wedge_backup(navigator)
+                # Clear both costmaps before retrying, same as the outer
+                # reroute loop already does (navigate_single_pose_with_reroute).
+                # Without this, a stale/drift-misaligned mark from the moment
+                # of the stall can persist and send the identical replanned
+                # path straight back into the same contact.
+                navigator.clearAllCostmaps()
+                time.sleep(0.5)
                 started_at = time.monotonic()
                 last_progress_log = started_at
                 start_odom_xy = odom_xy_from_msg(odom_state['msg'])
@@ -1519,6 +1583,8 @@ def main(args=None):
 
         marker_confirmed = False
         if not wp.get('skip_scan'):
+            align_heading_for_scan(
+                navigator, float(wp['yaw']), latest_amcl, wp['name'])
             expected = wp.get('expected_aruco_id')
             marker_confirmed = dwell_for_scan(
                 navigator, scan_dwell_sec, expected, latest_markers)
